@@ -1,0 +1,438 @@
+Get a number on prescribed burns in the Western US
+Tyler L. McIntosh
+CU Boulder CIRES Earth Lab
+Last updated: 11/1/23
+
+This script uses the following naming conventions wherever possible:
+ lowerCamelCase for variables
+ period.separated for functions
+ underscore_separated for files
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+# SETUP ----
+## Libraries ----
+
+#Check the required libraries and download if needed
+list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
+                      "terra",
+                      "sf",
+                      "mapview",
+                      "here",
+                      "future", "future.apply", "furrr", "doFuture", "progressr", #Futureverse!
+                      "tictoc", 
+                      "mblm", #Median-based linear models (i.e. thiel-sen)
+                      "plyr",
+                      "scales", #add commas to ggplot axis
+                      "tigris", #US data
+                      "scales") #add commas to axis
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(list.of.packages, library, character.only = TRUE) #apply library function to all packages
+
+
+## Clean workspace & set up environment ----
+rm(list=ls()) #Ensure empty workspace if running from beginning
+here::here() #Check here location
+#OR
+#setwd() #Set working directory directly
+options(digits = 6) #Set standard decimal print output
+options(scipen = 999) #Turn scientific notation on and off (0 = on, 999 = off)
+
+#Ensure necessary directories are created
+figsDir <- here::here("figs")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+
+
+
+```
+
+Import US data
+
+```{r}
+
+# #Get shapefiles for the US
+# # Fetch all US states
+# usa <- tigris::states() %>% 
+#   st_transform(st_crs(4269))
+# 
+# # Filter for contiguous states (excluding Alaska and Hawaii)
+# conus <- usa[usa$STUSPS %in% c("WA", "ID", "MT", "ND", "MN", "MI", "ME", "WI", "VT", "NH", "NY", "SD", "WY", "OR", "IA", "NE", "IL", "NV", "UT", "CO", "KS", "OK", "NM", "AZ", "AR", "MO", "MS", "AL", "GA", "SC", "NC", "TN", "KY", "IN", "OH", "WV", "VA", "PA", "MD", "DE", "NJ", "CT", "RI", "MA", "CT", "CA", "TX", "FL", "LA"),]
+
+
+westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+#west <- usa[usa$STUSPS %in% westAbbrList,]
+
+
+```
+
+Import prescribed fire datasets (two different ones)
+
+```{r}
+nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
+                      layer = "West_NFPORS_2010_2021") %>%
+  dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
+
+#re-export as shp for GEE
+
+#Function to write a shapefile to a new, file-specific directory and add a zipped version
+#    shp = the sf file to write to shapefile
+#    location = path of directory to create the new file-specific subdirectory in
+#    filename = name of file WITHOUT .shp
+#    zipOnly = TRUE / FALSE, should the original (unzipped) files be removed?
+
+# Example use:
+# st_write_shp(shp = prepped_for_parks_etal,
+#              location = here("data/derived"),
+#              filename = "career_lba_for_parks_v1",
+#              zipOnly = TRUE)
+st_write_shp <- function(shp, location, filename, zipOnly) {
+  
+  #Check for required packages and install if not installed, then load
+  list.of.packages <- c("zip","sf","here")
+  new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+  if(length(new.packages)) install.packages(new.packages)
+  library(zip)
+  library(sf)
+  library(here)
+  
+  
+  #Create subdirectory
+  outDir <- here::here(location, filename)
+  if (!dir.exists(outDir)){
+    dir.create(outDir)
+  }
+  
+  
+  
+  #Write file
+  sf::st_write(shp,
+               here::here(outDir, paste(filename, ".shp", sep = "")),
+               append = FALSE) #overwrite
+  
+  #Get all shapefile components
+  allShpNms <- list.files(here::here(outDir),
+                          pattern = paste(filename, "*", sep = ""),
+                          full.names = TRUE)
+  
+  #Zip together
+  zip::zip(zipfile = here::here(outDir, paste(filename, ".zip", sep="")),
+           files = allShpNms,
+           mode = "cherry-pick")
+  
+  
+  #Remove raw files if desired
+  if(zipOnly == TRUE) {
+    file.copy(here(outDir, paste(filename, ".zip", sep="")), here::here(location, paste(filename, ".zip", sep="")))
+    unlink(here(outDir), recursive = TRUE)          
+  }
+  
+}
+
+st_write_shp(shp = nfpors %>% dplyr::mutate(PointId = objectid__) %>% dplyr::select(PointId),
+             location = here::here("data", "raw"),
+             filename = "West_NFPORS_2010_2021",
+             zipOnly = FALSE)
+
+
+facts <- sf::st_read(here::here('data', 'raw', 'S_USA.Activity_HazFuelTrt_PL.gdb', 'S_USA.Activity_HazFuelTrt_PL.gdb'),
+                      layer = "Activity_HazFuelTrt_PL")
+
+```
+
+Explore nfpors
+
+```{r, eval = FALSE}
+
+head(nfpors)
+unique(nfpors$KEYPOINTNAME)
+unique(nfpors$STATENAME) #state filter has been done correctly
+unique(nfpors$TYPENAME) #includes Machine Pile Burn, Broadcast Burn, Fire Use, Jackpot Burn, and Hand Pile Burn
+unique(nfpors$UNITOFMEAS)
+unique(nfpors$WUIID)
+
+#mapview(nfpors) #this is point data!
+
+```
+
+
+Manipulate NFPORS data
+
+```{r}
+
+unique(nfpors$actualcompletionyear)
+unique(year(as.Date(nfpors$ACTUALCOMPLETIONDATE)))
+#actualcompletionyear has a few errors; make new one from the good data
+nfpors <- nfpors %>%
+  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(ACTUALCOMPLETIONDATE)))
+
+
+```
+Explore facts, filter, manipulate
+
+```{r, include = FALSE}
+head(facts)
+unique(facts$METHOD)
+unique(facts$TREATMENT_TYPE)
+
+yearsOfInterest = seq(2010,2021)
+
+#Get only prescribed burning activities in the western US in the years we have NFPORS data
+westPBFacts <- facts %>%
+  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(DATE_COMPLETED))) %>%
+  dplyr::filter(STATE_ABBR %in% westAbbrList) %>%
+  dplyr::filter(TREATMENT_TYPE %in% c("Machine Pile Burn", "Jackpot Burn", "Fire Use", "Broadcast Burn", "Hand Pile Burn")) %>%
+  dplyr::filter(ACTUALCOMPLETIONYEARNEW %in% yearsOfInterest)
+
+unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
+
+```
+
+Compare NFPORS FACTS & raw FACTS
+
+```{r}
+
+nfporsAllSummary <- nfpors %>%
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>%
+  dplyr::summarize(NFPORS_all = sum(TOTALACCOMPLISHMENT)) %>%
+  sf::st_drop_geometry()
+
+#filter NFPORS to just facts
+nfporsFACTS <- nfpors %>% dplyr::filter(SOURCE == "FACTS")
+
+nfporsFACTSSummary <- nfporsFACTS %>%
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>%
+  dplyr::summarize(NFPORS_FACTS = sum(TOTALACCOMPLISHMENT)) %>%
+  sf::st_drop_geometry()
+
+factsSummary <- westPBFacts %>%
+  as.data.frame() %>%
+  dplyr::group_by(STATE_ABBR, ACTUALCOMPLETIONYEARNEW) %>%
+  dplyr::summarize(FACTS_gis = sum(GIS_ACRES, na.rm=TRUE),
+            FACTS = sum(NBR_UNITS_ACCOMPLISHED))
+
+#Get summary of data
+allSummaryRaw <- left_join(nfporsFACTSSummary, factsSummary,
+                           by = c('STATEABBR' = 'STATE_ABBR', 'ACTUALCOMPLETIONYEARNEW' = 'ACTUALCOMPLETIONYEARNEW')) %>%
+  left_join(nfporsAllSummary,
+            by = c('STATEABBR' = 'STATEABBR', 'ACTUALCOMPLETIONYEARNEW' = 'ACTUALCOMPLETIONYEARNEW')) %>%
+  dplyr::mutate(FACTSGIS_NONGIS_DIFF = FACTS - FACTS_gis,
+         FACTS_NFPORS_DIFF = FACTS - NFPORS_FACTS)
+
+#Pivot longer
+allSummaryRawLong <- allSummaryRaw %>% 
+  dplyr::select(-FACTSGIS_NONGIS_DIFF, -FACTS_NFPORS_DIFF) %>%
+  tidyr::pivot_longer(cols = c(FACTS_gis,
+                               FACTS,
+                               NFPORS_FACTS,
+                               NFPORS_all),
+                                                    names_to = "datNm",
+                                                    values_to = "acres") %>%
+  dplyr::mutate(hectares = acres * 0.404686) #convert to hectares
+
+#Plot differences by state
+ggplot2::ggplot(allSummaryRawLong) +
+  geom_line(aes(x = ACTUALCOMPLETIONYEARNEW, y = hectares, col = datNm),
+            linetype = "solid") +
+  facet_wrap(~STATEABBR) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Dataset comparisons by state", caption = "NFPORS_all: All area reported in NFPORS dataset \n NFPORS_FACTS: Area described by NFPORS dataset that say they are from the FACTS database \n FACTS: Area described by FACTS dataset directly \n FACTS_gis: Area described by the FACTS dataset by polygon size") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light()
+ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_state_fig.png'), units = "in", width = 10)
+
+
+#Do without states
+allSummaryRawLongNoState <- allSummaryRawLong %>%
+  dplyr::group_by(ACTUALCOMPLETIONYEARNEW, datNm) %>%
+  dplyr::summarise(hectares = sum(hectares))
+
+#Plot differences without state breakdown
+ggplot2::ggplot(allSummaryRawLongNoState %>% dplyr::filter(datNm == "FACTS" | datNm == "NFPORS_all")) +
+  geom_line(aes(x = ACTUALCOMPLETIONYEARNEW, y = hectares, col = datNm),
+            linetype = "solid") +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Dataset comparisons", caption = "NFPORS_all: All area reported in NFPORS dataset \n FACTS: Area described by FACTS dataset directly") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light()
+ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_fig.png'), units = "in", width = 10)
+
+
+
+```
+
+LCMS data pulled from GEE:
+https://code.earthengine.google.com/60989ec067bec112f59c9f97d8f86a88
+
+Read in data and reshape, merge with raw NFPORS
+
+```{r}
+#Read in data from GEE
+lcmsDats <- read_csv(here::here('data', 'derived', 'LCMS_nfpors.csv')) %>%
+  dplyr::select(-`.geo`, -`system:index`) %>%
+  dplyr::mutate(name = paste0("LC_", Year))
+
+#LCMS classes; for context
+lcmsClasses <- cbind(
+  seq(1,15),
+  c("Trees",
+    "Tall Shrubs & Trees Mix (SEAK Only)",
+    "Shrubs & Trees Mix",
+    "Grass/Forb/Herb & Trees Mix",
+    "Barren & Trees Mix",
+    "Tall Shrubs (SEAK Only)",
+    "Shrubs",
+    "Grass/Forb/Herb & Shrubs Mix",
+    "Barren & Shrubs Mix",
+    "Grass/Forb/Herb",
+    "Barren & Grass/Forb/Herb Mix",
+    "Barren or Impervious",
+    "Snow or Ice",
+    "Water",
+    "Non-Processing Area Mask")
+) %>%
+  as.data.frame() %>% 
+  `names<-`(c("LandCover", "LandCoverDescription")) %>%
+   dplyr::mutate(LandCover = as.double(LandCover))
+
+#Pivot wider
+shortLcmsDats <- lcmsDats %>%
+  dplyr::select(-Year) %>%
+  tidyr::pivot_wider(names_from = name, values_from = LandCover)
+
+#Join together and add column with land cover in burn year & landcover name
+nfporsWithLcms <- nfpors %>%
+  dplyr::mutate(PointId = objectid__) %>%
+  dplyr::left_join(shortLcmsDats, by = c("PointId")) %>%
+  dplyr::mutate(index = paste0("LC_", ACTUALCOMPLETIONYEARNEW)) %>% #THIS AND NEXT TWO LINES DO ROWWISE COMPUTE FOR THE LC_BURNYEAR
+  dplyr::rowwise() %>%
+  dplyr::mutate(LC_BurnYear = get(index)) %>%
+  dplyr::ungroup() %>%
+  as.data.frame() %>%
+  dplyr::left_join(lcmsClasses, by = c("LC_BurnYear" = "LandCover")) %>%
+  dplyr::mutate(TOTALACCOMPLISHMENT_HA = TOTALACCOMPLISHMENT * 0.404686) #convert new HA column
+  
+
+```
+
+
+Perform summaries of rx burn areas by state/year/landcover/WUI
+
+```{r}
+
+#Group by state, year, land cover
+stateYearLC <- nfporsWithLcms %>% 
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW, LandCoverDescription) %>% 
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
+
+ggplot(stateYearLC) +
+  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot, fill = STATEABBR)) +
+  facet_wrap(~LandCoverDescription) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "rx Burns by land cover type")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_by_LC_fig.png'), units = "in", width = 10)
+
+#Filter to just forest rx
+nfporsWithLcmsForest <- nfporsWithLcms %>%
+  filter(LandCoverDescription == "Trees")
+
+stateYearForest <- nfporsWithLcmsForest %>% 
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>% 
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
+
+ggplot(stateYearLC) +
+  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot, fill = STATEABBR)) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Forest-only rx Burns by State")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_forest_by_state_fig.png'), units = "in", width = 12)
+
+ggplot(stateYearLC) +
+  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
+  facet_wrap(~STATEABBR) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Forest-only rx Burns by State")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_forest_by_state_fig_facet.png'), units = "in", width = 12)
+
+
+#Look at WUI rx burn #s
+wuiForest <- nfporsWithLcmsForest %>% 
+  dplyr::group_by(iswui, ACTUALCOMPLETIONYEARNEW) %>% 
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) %>%
+  dplyr::filter(!is.na(iswui))
+
+ggplot(wuiForest) +
+  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
+  facet_wrap(~iswui) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Forest-only Rx Burns by WUI")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_forest_by_wui_fig_facet.png'), units = "in", width = 12)
+
+
+#All as one
+rxForest <- nfporsWithLcmsForest %>% 
+  dplyr::group_by(ACTUALCOMPLETIONYEARNEW) %>% 
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
+
+ggplot(rxForest) +
+  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
+  xlab("Year") +
+  ylab("Hectares") + 
+  labs(title = "Forest-only Rx Burns by year")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_forest_year_fig_facet.png'), units = "in", width = 12)
+
+
+```
+
+Run Theil-sen on plots of interest: wui/non-wui, overall,  by state
+
+```{r}
+#Get theil-sen fits and graph
+theilSenFitAll <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
+                              dataframe = rxForest,
+                              repeated = FALSE)
+
+#Get estimator significance
+summary.mblm(theilSenFitAll)
+
+#Get theil-sen fits and graph
+theilSenFitNonWui <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
+                              dataframe = wuiForest %>% dplyr::filter(iswui == "N"),
+                              repeated = FALSE)
+
+#Get estimator significance
+summary.mblm(theilSenFitNonWui)
+
+#Get theil-sen fits and graph
+theilSenFitWui <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
+                            dataframe = wuiForest %>% dplyr::filter(iswui == "Y"),
+                            repeated = FALSE)
+
+#Get estimator significance
+summary.mblm(theilSenFitWui)
+
+
+
+
+```
