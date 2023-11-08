@@ -47,3 +47,9 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+#User-created directories and files to ignore
+data/*
+.DS_Store
+figs/*
+docs/*
