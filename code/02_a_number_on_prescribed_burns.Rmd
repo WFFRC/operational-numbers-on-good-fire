@@ -1,7 +1,7 @@
 Get a number on prescribed burns in the Western US
 Tyler L. McIntosh
 CU Boulder CIRES Earth Lab
-Last updated: 11/1/23
+Last updated: 11/8/23
 
 This script uses the following naming conventions wherever possible:
  lowerCamelCase for variables
@@ -71,72 +71,12 @@ westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "U
 Import prescribed fire datasets (two different ones)
 
 ```{r}
+#load nfpors
 nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
                       layer = "West_NFPORS_2010_2021") %>%
   dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
 
-#re-export as shp for GEE
-
-#Function to write a shapefile to a new, file-specific directory and add a zipped version
-#    shp = the sf file to write to shapefile
-#    location = path of directory to create the new file-specific subdirectory in
-#    filename = name of file WITHOUT .shp
-#    zipOnly = TRUE / FALSE, should the original (unzipped) files be removed?
-
-# Example use:
-# st_write_shp(shp = prepped_for_parks_etal,
-#              location = here("data/derived"),
-#              filename = "career_lba_for_parks_v1",
-#              zipOnly = TRUE)
-st_write_shp <- function(shp, location, filename, zipOnly) {
-  
-  #Check for required packages and install if not installed, then load
-  list.of.packages <- c("zip","sf","here")
-  new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
-  if(length(new.packages)) install.packages(new.packages)
-  library(zip)
-  library(sf)
-  library(here)
-  
-  
-  #Create subdirectory
-  outDir <- here::here(location, filename)
-  if (!dir.exists(outDir)){
-    dir.create(outDir)
-  }
-  
-  
-  
-  #Write file
-  sf::st_write(shp,
-               here::here(outDir, paste(filename, ".shp", sep = "")),
-               append = FALSE) #overwrite
-  
-  #Get all shapefile components
-  allShpNms <- list.files(here::here(outDir),
-                          pattern = paste(filename, "*", sep = ""),
-                          full.names = TRUE)
-  
-  #Zip together
-  zip::zip(zipfile = here::here(outDir, paste(filename, ".zip", sep="")),
-           files = allShpNms,
-           mode = "cherry-pick")
-  
-  
-  #Remove raw files if desired
-  if(zipOnly == TRUE) {
-    file.copy(here(outDir, paste(filename, ".zip", sep="")), here::here(location, paste(filename, ".zip", sep="")))
-    unlink(here(outDir), recursive = TRUE)          
-  }
-  
-}
-
-st_write_shp(shp = nfpors %>% dplyr::mutate(PointId = objectid__) %>% dplyr::select(PointId),
-             location = here::here("data", "raw"),
-             filename = "West_NFPORS_2010_2021",
-             zipOnly = FALSE)
-
-
+#load facts
 facts <- sf::st_read(here::here('data', 'raw', 'S_USA.Activity_HazFuelTrt_PL.gdb', 'S_USA.Activity_HazFuelTrt_PL.gdb'),
                       layer = "Activity_HazFuelTrt_PL")
 
