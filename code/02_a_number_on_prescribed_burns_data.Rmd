@@ -1,7 +1,7 @@
-Get a number on prescribed burns in the Western US
+Manage data to get a number on prescribed burns in the Western US
 Tyler L. McIntosh
 CU Boulder CIRES Earth Lab
-Last updated: 11/8/23
+Last updated: 11/15/23
 
 This script uses the following naming conventions wherever possible:
  lowerCamelCase for variables
@@ -34,6 +34,7 @@ invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisi
 
 ## Clean workspace & set up environment ----
 rm(list=ls()) #Ensure empty workspace if running from beginning
+here::i_am("code/02_a_number_on_prescribed_burns_data.Rmd")
 here::here() #Check here location
 #OR
 #setwd() #Set working directory directly
@@ -41,12 +42,10 @@ options(digits = 6) #Set standard decimal print output
 options(scipen = 999) #Turn scientific notation on and off (0 = on, 999 = off)
 
 #Ensure necessary directories are created
-figsDir <- here::here("figs")
-if (!dir.exists(figsDir)){
-  dir.create(figsDir)
+derivedDatDir <- here::here("data", "derived")
+if (!dir.exists(derivedDatDir)){
+  dir.create(derivedDatDir)
 }
-
-
 
 ```
 
@@ -131,7 +130,7 @@ unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
 
 ```
 
-Compare NFPORS FACTS & raw FACTS
+Prepare to compare NFPORS FACTS & raw FACTS
 
 ```{r}
 
@@ -173,38 +172,8 @@ allSummaryRawLong <- allSummaryRaw %>%
                                                     values_to = "acres") %>%
   dplyr::mutate(hectares = acres * 0.404686) #convert to hectares
 
-#Plot differences by state
-ggplot2::ggplot(allSummaryRawLong) +
-  geom_line(aes(x = ACTUALCOMPLETIONYEARNEW, y = hectares, col = datNm),
-            linetype = "solid") +
-  facet_wrap(~STATEABBR) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Dataset comparisons by state", caption = "NFPORS_all: All area reported in NFPORS dataset \n NFPORS_FACTS: Area described by NFPORS dataset that say they are from the FACTS database \n FACTS: Area described by FACTS dataset directly \n FACTS_gis: Area described by the FACTS dataset by polygon size") +
-  scale_y_continuous(labels=comma,
-                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
-                                         name = "Acres")) +
-  theme_light()
-ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_state_fig.png'), units = "in", width = 10)
-
-
-#Do without states
-allSummaryRawLongNoState <- allSummaryRawLong %>%
-  dplyr::group_by(ACTUALCOMPLETIONYEARNEW, datNm) %>%
-  dplyr::summarise(hectares = sum(hectares))
-
-#Plot differences without state breakdown
-ggplot2::ggplot(allSummaryRawLongNoState %>% dplyr::filter(datNm == "FACTS" | datNm == "NFPORS_all")) +
-  geom_line(aes(x = ACTUALCOMPLETIONYEARNEW, y = hectares, col = datNm),
-            linetype = "solid") +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Dataset comparisons", caption = "NFPORS_all: All area reported in NFPORS dataset \n FACTS: Area described by FACTS dataset directly") +
-  scale_y_continuous(labels=comma,
-                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
-                                         name = "Acres")) +
-  theme_light()
-ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_fig.png'), units = "in", width = 10)
+#write out dataset
+write_csv(allSummaryRawLong, here::here(derivedDatDir, "rx_dataset_comparison_long_version.csv"))
 
 
 
@@ -261,119 +230,10 @@ nfporsWithLcms <- nfpors %>%
   dplyr::left_join(lcmsClasses, by = c("LC_BurnYear" = "LandCover")) %>%
   dplyr::mutate(TOTALACCOMPLISHMENT_HA = TOTALACCOMPLISHMENT * 0.404686) #convert new HA column
   
-
-```
-
-
-Perform summaries of rx burn areas by state/year/landcover/WUI
-
-```{r}
-
-#Group by state, year, land cover
-stateYearLC <- nfporsWithLcms %>% 
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW, LandCoverDescription) %>% 
-  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
-
-ggplot(stateYearLC) +
-  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot, fill = STATEABBR)) +
-  facet_wrap(~LandCoverDescription) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "rx Burns by land cover type")+
-  scale_y_continuous(labels=comma) +
-  theme_light()
-ggsave(here::here(figsDir, 'rx_by_LC_fig.png'), units = "in", width = 10)
-
-#Filter to just forest rx
-nfporsWithLcmsForest <- nfporsWithLcms %>%
-  filter(LandCoverDescription == "Trees")
-
-stateYearForest <- nfporsWithLcmsForest %>% 
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>% 
-  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
-
-ggplot(stateYearLC) +
-  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot, fill = STATEABBR)) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Forest-only rx Burns by State")+
-  scale_y_continuous(labels=comma) +
-  theme_light()
-ggsave(here::here(figsDir, 'rx_forest_by_state_fig.png'), units = "in", width = 12)
-
-ggplot(stateYearLC) +
-  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
-  facet_wrap(~STATEABBR) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Forest-only rx Burns by State")+
-  scale_y_continuous(labels=comma) +
-  theme_light()
-ggsave(here::here(figsDir, 'rx_forest_by_state_fig_facet.png'), units = "in", width = 12)
-
-
-#Look at WUI rx burn #s
-wuiForest <- nfporsWithLcmsForest %>% 
-  dplyr::group_by(iswui, ACTUALCOMPLETIONYEARNEW) %>% 
-  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) %>%
-  dplyr::filter(!is.na(iswui))
-
-ggplot(wuiForest) +
-  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
-  facet_wrap(~iswui) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Forest-only Rx Burns by WUI")+
-  scale_y_continuous(labels=comma) +
-  theme_light()
-ggsave(here::here(figsDir, 'rx_forest_by_wui_fig_facet.png'), units = "in", width = 12)
-
-
-#All as one
-rxForest <- nfporsWithLcmsForest %>% 
-  dplyr::group_by(ACTUALCOMPLETIONYEARNEW) %>% 
-  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
-
-ggplot(rxForest) +
-  geom_col(aes(x = ACTUALCOMPLETIONYEARNEW, y = tot)) +
-  xlab("Year") +
-  ylab("Hectares") + 
-  labs(title = "Forest-only Rx Burns by year")+
-  scale_y_continuous(labels=comma) +
-  theme_light()
-ggsave(here::here(figsDir, 'rx_forest_year_fig_facet.png'), units = "in", width = 12)
+#write out dataset
+write_csv(nfporsWithLcms, here::here(derivedDatDir, "nfpors_with_lcms.csv"))
 
 
 ```
 
-Run Theil-sen on plots of interest: wui/non-wui, overall,  by state
 
-```{r}
-#Get theil-sen fits and graph
-theilSenFitAll <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
-                              dataframe = rxForest,
-                              repeated = FALSE)
-
-#Get estimator significance
-summary.mblm(theilSenFitAll)
-
-#Get theil-sen fits and graph
-theilSenFitNonWui <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
-                              dataframe = wuiForest %>% dplyr::filter(iswui == "N"),
-                              repeated = FALSE)
-
-#Get estimator significance
-summary.mblm(theilSenFitNonWui)
-
-#Get theil-sen fits and graph
-theilSenFitWui <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
-                            dataframe = wuiForest %>% dplyr::filter(iswui == "Y"),
-                            repeated = FALSE)
-
-#Get estimator significance
-summary.mblm(theilSenFitWui)
-
-
-
-
-```

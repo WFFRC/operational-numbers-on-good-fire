@@ -33,6 +33,7 @@ lapply(list.of.packages, library, character.only = TRUE) #apply library function
 
 ## Clean workspace & set up environment ----
 rm(list=ls()) #Ensure empty workspace if running from beginning
+here::i_am("code/00_prep_nfpors_for_gee.R")
 here::here() #Check here location
 
 
