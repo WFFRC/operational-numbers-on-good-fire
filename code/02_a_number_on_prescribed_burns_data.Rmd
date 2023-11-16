@@ -8,8 +8,9 @@ This script uses the following naming conventions wherever possible:
  period.separated for functions
  underscore_separated for files
 
+# Setup
+
 ```{r, message = FALSE, warning = FALSE, include = FALSE}
-# SETUP ----
 ## Libraries ----
 
 #Check the required libraries and download if needed
@@ -49,7 +50,7 @@ if (!dir.exists(derivedDatDir)){
 
 ```
 
-Import US data
+# Import US data
 
 ```{r}
 
@@ -68,7 +69,7 @@ westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "U
 
 ```
 
-Import prescribed fire datasets (two different ones)
+# Import prescribed fire datasets (two different ones)
 
 ```{r}
 #load nfpors
@@ -82,7 +83,7 @@ facts <- sf::st_read(here::here('data', 'raw', 'S_USA.Activity_HazFuelTrt_PL.gdb
 
 ```
 
-Explore nfpors
+# Explore nfpors
 
 ```{r, eval = FALSE}
 
@@ -98,7 +99,7 @@ unique(nfpors$WUIID)
 ```
 
 
-Manipulate NFPORS data
+# Manipulate NFPORS data
 
 ```{r}
 
@@ -110,7 +111,7 @@ nfpors <- nfpors %>%
 
 
 ```
-Explore facts, filter, manipulate
+# Explore facts, filter, manipulate
 
 ```{r, include = FALSE}
 head(facts)
@@ -130,7 +131,7 @@ unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
 
 ```
 
-Prepare to compare NFPORS FACTS & raw FACTS
+# Prepare to compare NFPORS FACTS & raw FACTS
 
 ```{r}
 
@@ -178,6 +179,8 @@ write_csv(allSummaryRawLong, here::here(derivedDatDir, "rx_dataset_comparison_lo
 
 
 ```
+
+# Create NFPORS + LCMS data
 
 LCMS data pulled from GEE:
 https://code.earthengine.google.com/60989ec067bec112f59c9f97d8f86a88
