@@ -8,8 +8,9 @@ This script uses the following naming conventions wherever possible:
  period.separated for functions
  underscore_separated for files
 
+# Setup
+
 ```{r, message = FALSE, warning = FALSE, include = FALSE}
-# SETUP ----
 ## Libraries ----
 
 #Check the required libraries and download if needed
@@ -55,18 +56,26 @@ if (!dir.exists(derivedDatDir)){
 
 ```
 
+# Read in data
 Read in the data;
 -From Rud: https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0
-  (has three tabs of data)
+  (has three tabs of data) - all in HA
 -From rx burn data munging & collating
 
 
 ```{r}
+#From script 02
 rxDatCompare <- read_csv(here::here(derivedDatDir, "rx_dataset_comparison_long_version.csv"))
 nfporsWithLcms <- read_csv(here::here(derivedDatDir, "nfpors_with_lcms.csv"))
 
+#From script 03 - all 3 sheets of data
+fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Full Data")
+yearSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Year Summary")
+stateSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "State Summary")
+
 ```
 
+# Compare RX dats
 Create comparisons of rx burn datasets (originally in script 02)
 
 ```{r}
@@ -108,7 +117,7 @@ ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_fig.png'), units = "in"
 
 ```
 
-
+# Summarize rx with LCMS
 Perform summaries of rx burn areas by state/year/landcover/WUI
 
 ```{r}
@@ -190,7 +199,7 @@ ggsave(here::here(figsDir, 'rx_forest_year_fig_facet.png'), units = "in", width 
 
 ```
 
-
+# A few firest theil-sens
 Run Theil-sen on plots of interest: wui/non-wui, overall,  by state
 
 ```{r}
@@ -217,6 +226,104 @@ theilSenFitWui <- mblm::mblm(formula = tot ~ ACTUALCOMPLETIONYEARNEW,
 
 #Get estimator significance
 summary.mblm(theilSenFitWui)
+
+
+```
+
+# Combine rx & mtbs low-CBI from Rud
+
+```{r}
+
+#CBI data
+stateYearCBI <- fullDataMTBS |>
+  dplyr::group_by(year, State) |>
+  dplyr::summarise(CBIlowmodsev = sum(CBIlowmodsev),
+                   CBIhighsev = sum(CBIhighsev))
+
+#NFPORS data
+stateYearNFPORSForest <- nfporsWithLcmsForest |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA))
+
+head(stateYearCBI)
+head(stateYearNFPORSForest)
+
+#join
+stateYearCompare <- stateYearCBI |>
+  full_join(stateYearNFPORSForest, join_by(State == STATEABBR, year == ACTUALCOMPLETIONYEARNEW))
+
+stateYearCompareLong <- stateYearCompare |>
+    tidyr::pivot_longer(cols = c(CBIlowmodsev,
+                               CBIhighsev,
+                               rxBurnHa),
+                                                    names_to = "datNm",
+                                                    values_to = "hectares")
+statesCompare <- stateYearCompareLong |> 
+  dplyr::group_by(State, datNm) |> 
+  dplyr::summarize(hectares = sum(hectares, na.rm = TRUE))
+yearCompare <- stateYearCompareLong |> 
+  dplyr::group_by(year, datNm) |> 
+  dplyr::summarize(hectares = sum(hectares, na.rm = TRUE))
+
+```
+
+# Plot
+
+```{r}
+#plot
+ggplot2::ggplot(statesCompare)  +
+  geom_col(aes(x = State, y = hectares, fill = datNm),
+            linetype = "solid") +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON STATES") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light()
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig.png'), units = "in", width = 10)
+
+ggplot2::ggplot(yearCompare)  +
+  geom_col(aes(x = year, y = hectares, fill = datNm)) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON YEAR") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light()
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig.png'), units = "in", width = 10)
+
+ggplot2::ggplot(stateYearCompareLong)  +
+  geom_col(aes(x = year, y = hectares, fill = datNm)) +
+  facet_wrap(~State, scales = "free") + 
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light()
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_fig.png'), units = "in", width = 10)
+
+```
+# Tabulate
+
+```{r}
+yearPerc <- stateYearCompare |>
+  dplyr::select(-CBIhighsev) |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(across(c(CBIlowmodsev, rxBurnHa), sum, na.rm=TRUE)) |>
+  dplyr::mutate(RxPercOfLowMod = (rxBurnHa/CBIlowmodsev) * 100) |>
+  dplyr::select(year, RxPercOfLowMod)
+
+statePerc <- stateYearCompare |>
+  dplyr::select(-CBIhighsev) |>
+  dplyr::group_by(State) |>
+  dplyr::summarise(across(c(CBIlowmodsev, rxBurnHa), sum, na.rm=TRUE)) |>
+  dplyr::mutate(RxPercOfLowMod = (rxBurnHa/CBIlowmodsev) * 100) |>
+  dplyr::select(State, RxPercOfLowMod)
+
 
 
 ```
