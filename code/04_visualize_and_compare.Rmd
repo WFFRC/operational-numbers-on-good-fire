@@ -23,6 +23,7 @@ list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr
                       "tictoc", 
                       "mblm", #Median-based linear models (i.e. thiel-sen)
                       "plyr",
+                      "kableExtra", #nice tables
                       "googlesheets4", #read in google sheet data
                       "scales", #add commas to ggplot axis
                       "tigris", #US data
@@ -199,7 +200,7 @@ ggsave(here::here(figsDir, 'rx_forest_year_fig_facet.png'), units = "in", width 
 
 ```
 
-# A few firest theil-sens
+# A few first theil-sens
 Run Theil-sen on plots of interest: wui/non-wui, overall,  by state
 
 ```{r}
@@ -238,7 +239,12 @@ summary.mblm(theilSenFitWui)
 stateYearCBI <- fullDataMTBS |>
   dplyr::group_by(year, State) |>
   dplyr::summarise(CBIlowmodsev = sum(CBIlowmodsev),
-                   CBIhighsev = sum(CBIhighsev))
+                   CBIhighsev = sum(CBIhighsev),
+                   frcLowCbiLow = sum(frcLowCbiLow)) |>
+  dplyr::mutate(frcOtherCbiLow = CBIlowmodsev - frcLowCbiLow) |>
+  dplyr::select(-CBIlowmodsev)
+
+
 
 #NFPORS data
 stateYearNFPORSForest <- nfporsWithLcmsForest |>
@@ -253,11 +259,15 @@ stateYearCompare <- stateYearCBI |>
   full_join(stateYearNFPORSForest, join_by(State == STATEABBR, year == ACTUALCOMPLETIONYEARNEW))
 
 stateYearCompareLong <- stateYearCompare |>
-    tidyr::pivot_longer(cols = c(CBIlowmodsev,
+    tidyr::pivot_longer(cols = c(frcLowCbiLow,
+                                 frcOtherCbiLow,
                                CBIhighsev,
                                rxBurnHa),
                                                     names_to = "datNm",
-                                                    values_to = "hectares")
+                                                    values_to = "hectares") |>
+  dplyr::mutate(datNm = factor(datNm, levels = c("CBIhighsev", "frcOtherCbiLow", "frcLowCbiLow", "rxBurnHa")))
+
+#for just states or just years
 statesCompare <- stateYearCompareLong |> 
   dplyr::group_by(State, datNm) |> 
   dplyr::summarize(hectares = sum(hectares, na.rm = TRUE))
@@ -280,7 +290,8 @@ ggplot2::ggplot(statesCompare)  +
   scale_y_continuous(labels=comma,
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
-  theme_light()
+  theme_light() +
+  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig.png'), units = "in", width = 10)
 
 ggplot2::ggplot(yearCompare)  +
@@ -291,7 +302,8 @@ ggplot2::ggplot(yearCompare)  +
   scale_y_continuous(labels=comma,
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
-  theme_light()
+  theme_light() +
+  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig.png'), units = "in", width = 10)
 
 ggplot2::ggplot(stateYearCompareLong)  +
@@ -303,7 +315,8 @@ ggplot2::ggplot(stateYearCompareLong)  +
   scale_y_continuous(labels=comma,
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
-  theme_light()
+  theme_light() +
+  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_fig.png'), units = "in", width = 10)
 
 ```
@@ -313,17 +326,48 @@ ggplot2::ggsave(here::here(figsDir, 'cbi_rx_fig.png'), units = "in", width = 10)
 yearPerc <- stateYearCompare |>
   dplyr::select(-CBIhighsev) |>
   dplyr::group_by(year) |>
-  dplyr::summarise(across(c(CBIlowmodsev, rxBurnHa), sum, na.rm=TRUE)) |>
-  dplyr::mutate(RxPercOfLowMod = (rxBurnHa/CBIlowmodsev) * 100) |>
-  dplyr::select(year, RxPercOfLowMod)
+  dplyr::summarise(across(c(frcLowCbiLow, frcOtherCbiLow, rxBurnHa), sum, na.rm=TRUE)) |>
+  dplyr::mutate(RxPercOfLowLow = (rxBurnHa/frcLowCbiLow) * 100) |>
+  dplyr::select(year, RxPercOfLowLow)
 
 statePerc <- stateYearCompare |>
   dplyr::select(-CBIhighsev) |>
   dplyr::group_by(State) |>
-  dplyr::summarise(across(c(CBIlowmodsev, rxBurnHa), sum, na.rm=TRUE)) |>
-  dplyr::mutate(RxPercOfLowMod = (rxBurnHa/CBIlowmodsev) * 100) |>
-  dplyr::select(State, RxPercOfLowMod)
+  dplyr::summarise(across(c(frcLowCbiLow, frcOtherCbiLow, rxBurnHa), sum, na.rm=TRUE)) |>
+  dplyr::mutate(RxPercOfLowLow = (rxBurnHa/frcLowCbiLow) * 100) |>
+  dplyr::select(State, RxPercOfLowLow)
+
+# yrStatePerc <- stateYearCompare |>
+#   dplyr::mutate(RxPercOfLowLow = (rxBurnHa/frcLowCbiLow) * 100) |>
+#   dplyr::select(State, year, RxPercOfLowLow) |>
+#   tidyr::pivot_wider(id_cols = State,
+#                      names_from = year,
+#                      values_from = RxPercOfLowLow)
+
+yrStatePerc <- stateYearCompare |>
+  dplyr::mutate(RxPercOfLowLow = (rxBurnHa/frcLowCbiLow) * 100) |>
+  dplyr::select(State, year, RxPercOfLowLow)
+
 
 
 
 ```
+
+
+# Create nice tables from tabular data
+
+```{r}
+
+
+ggplot(yrStatePerc, aes(year, State, fill = RxPercOfLowLow, label = paste0(sprintf("%.1f", RxPercOfLowLow), "%"))) + 
+  geom_tile() + geom_text() +
+  scale_fill_gradient2(low = "blue", high = "red", limits = c(0,200), midpoint = 100, na.value = "red") + 
+  xlab("Year") +
+  ylab("State") +
+  labs(title = "Heatmap of Prescribed Burn area as \nPercentage of Low/Mod CBI in Low/Mod regime area", caption = "Red indicates that there was more prescribed burning than low-severity fire in low-regime") 
+ggplot2::ggsave(here::here(figsDir, 'heatmap.png'), units = "in", width = 15)
+
+
+
+```
+
