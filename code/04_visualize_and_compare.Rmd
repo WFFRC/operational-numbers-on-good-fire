@@ -359,13 +359,15 @@ yrStatePerc <- stateYearCompare |>
 ```{r}
 
 
-ggplot(yrStatePerc, aes(year, State, fill = RxPercOfLowLow, label = paste0(sprintf("%.1f", RxPercOfLowLow), "%"))) + 
-  geom_tile() + geom_text() +
+ggplot(yrStatePerc, aes(year, State, fill = RxPercOfLowLow,
+                        label = paste0(sprintf("%.1f", RxPercOfLowLow), "%"))) + 
+  geom_tile() +
+  geom_text(size = 3) +
   scale_fill_gradient2(low = "blue", high = "red", limits = c(0,200), midpoint = 100, na.value = "red") + 
   xlab("Year") +
   ylab("State") +
-  labs(title = "Heatmap of Prescribed Burn area as \nPercentage of Low/Mod CBI in Low/Mod regime area", caption = "Red indicates that there was more prescribed burning than low-severity fire in low-regime") 
-ggplot2::ggsave(here::here(figsDir, 'heatmap.png'), units = "in", width = 15)
+  labs(title = "Heatmap of Prescribed Burn area as \nPercentage of Low/Mod CBI in Low/Mod regime area", caption = "Red indicates that there was more prescribed burning than low-severity fire in low-regime")
+ggplot2::ggsave(here::here(figsDir, 'heatmap.png'), units = "in", width = 10)
 
 
 
