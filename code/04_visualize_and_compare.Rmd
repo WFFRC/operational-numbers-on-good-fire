@@ -74,6 +74,8 @@ fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/
 yearSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Year Summary")
 stateSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "State Summary")
 
+
+
 ```
 
 # Compare RX dats
@@ -280,6 +282,10 @@ yearCompare <- stateYearCompareLong |>
 # Plot
 
 ```{r}
+
+plotColors <- c("red", "goldenrod3", "goldenrod1", "seagreen")
+plotLabels <- c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns")
+
 #plot
 ggplot2::ggplot(statesCompare)  +
   geom_col(aes(x = State, y = hectares, fill = datNm),
@@ -291,7 +297,7 @@ ggplot2::ggplot(statesCompare)  +
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
   theme_light() +
-  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
+  scale_fill_manual(values = plotColors, labels = plotLabels)
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig.png'), units = "in", width = 10)
 
 ggplot2::ggplot(yearCompare)  +
@@ -303,7 +309,7 @@ ggplot2::ggplot(yearCompare)  +
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
   theme_light() +
-  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
+  scale_fill_manual(values = plotColors, labels = plotLabels)
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig.png'), units = "in", width = 10)
 
 ggplot2::ggplot(stateYearCompareLong)  +
@@ -316,10 +322,60 @@ ggplot2::ggplot(stateYearCompareLong)  +
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres")) +
   theme_light() +
-  scale_fill_manual(values = c("red", "goldenrod3", "goldenrod1", "seagreen"), labels = c("High CBI", "Low/Mod CBI in Other \n   Historical Fire Regime", "Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns"))
+  scale_fill_manual(values = plotColors, labels = plotLabels)
 ggplot2::ggsave(here::here(figsDir, 'cbi_rx_fig.png'), units = "in", width = 10)
 
 ```
+# Plots with only RxBurns & Low CBI in low historical fire regime, cols dodged
+
+```{r}
+plotColors <- c("goldenrod1", "seagreen")
+plotLabels <- c("Low/Mod CBI in Low/Mod \n   Historical Fire Regime", "Prescribed Burns")
+
+#plot
+ggplot2::ggplot(statesCompare |> filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow"))  +
+  geom_col(aes(x = State, y = hectares, fill = datNm),
+            linetype = "solid", position = "dodge") +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON STATES") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light() +
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig_v2.png'), units = "in", width = 10)
+
+ggplot2::ggplot(yearCompare |> filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow"))  +
+  geom_col(aes(x = year, y = hectares, fill = datNm), position = "dodge") +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON YEAR") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light() +
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig_v2.png'), units = "in", width = 10)
+
+ggplot2::ggplot(stateYearCompareLong |> filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow"))  +
+  geom_col(aes(x = year, y = hectares, fill = datNm), position = "dodge") +
+  facet_wrap(~State, scales = "free") + 
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "MTBS CBI & RX BURN COMPARISON") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres")) +
+  theme_light() +
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_fig_v2.png'), units = "in", width = 10)
+
+
+
+```
+
+
 # Tabulate
 
 ```{r}
@@ -363,10 +419,10 @@ ggplot(yrStatePerc, aes(year, State, fill = RxPercOfLowLow,
                         label = paste0(sprintf("%.1f", RxPercOfLowLow), "%"))) + 
   geom_tile() +
   geom_text(size = 3) +
-  scale_fill_gradient2(low = "blue", high = "red", limits = c(0,200), midpoint = 100, na.value = "red") + 
+  scale_fill_gradient2(low = "goldenrod1", high = "seagreen", limits = c(0,200), midpoint = 100, na.value = "seagreen") + 
   xlab("Year") +
   ylab("State") +
-  labs(title = "Heatmap of Prescribed Burn area as \nPercentage of Low/Mod CBI in Low/Mod regime area", caption = "Red indicates that there was more prescribed burning than low-severity fire in low-regime")
+  labs(title = "Heatmap of Prescribed Burn area as \nPercentage of Low/Mod CBI in Low/Mod regime area", caption = "Green indicates that there was more prescribed burning than low-severity fire in low-regime")
 ggplot2::ggsave(here::here(figsDir, 'heatmap.png'), units = "in", width = 10)
 
 
