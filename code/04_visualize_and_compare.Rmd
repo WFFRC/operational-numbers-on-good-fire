@@ -27,6 +27,7 @@ list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr
                       "googlesheets4", #read in google sheet data
                       "scales", #add commas to ggplot axis
                       "tigris", #US data
+                      "tmap", #mapping
                       "scales") #add commas to axis
 
 #Install all packages that aren't installed yet
@@ -429,3 +430,87 @@ ggplot2::ggsave(here::here(figsDir, 'heatmap.png'), units = "in", width = 10)
 
 ```
 
+# Graphics for Moore
+
+```{r}
+
+#Get shapefiles for the US
+# Fetch western US states
+usa <- tigris::states() %>% 
+  st_transform(st_crs(4269))
+west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),]
+
+#Join state data
+westDats <- west |>
+  dplyr::left_join(statePerc, join_by('STUSPS' == 'State')) |>
+  dplyr::mutate(RxRatioLowLow = RxPercOfLowLow / 100)
+
+#Plot the perimeters (could use mapview library here if wanted an interactive visual)
+tmap::tm_shape(westDats) +
+  tmap::tm_fill(col = "RxRatioLowLow", legend.show = TRUE, style = "cont", palette = colorRampPalette(c("goldenrod1", "white", "seagreen"))(n = 100), midpoint = 1) +
+  tmap::tm_layout(main.title = "Ratio of prescribed burning \nto good wildfire since 2010", legend.title.color = NA)
+
+
+
+
+
+
+
+plotColors <- c("goldenrod2", "seagreen")
+plotLabels <- c("Good Wildfire", "Prescribed Burns")
+ggplot2::ggplot(yearCompare |> filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow"))  +
+  geom_col(aes(x = year, y = hectares, fill = datNm), position = "dodge") +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "Good fire over time",
+       caption = "'Good wildfire' refers to low/moderate severity wildfire occurring in\na region with a historical low/moderate severity wildfire regime") +
+  scale_y_continuous(labels=comma) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig_v2.png'), units = "in", width = 8)
+
+
+ggplot2::ggplot(statesCompare |> filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow"))  +
+  geom_col(aes(x = State, y = hectares, fill = datNm),
+            linetype = "solid", position = "dodge") +
+  xlab("State") +
+  ylab("Hectares") +
+  labs(title = "Good fire by state") +
+  scale_y_continuous(labels=comma) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig_v2.png'), units = "in", width = 8)
+
+
+
+
+#Get overall #s
+overall <- yearCompare |>
+  dplyr::group_by(datNm) |>
+  dplyr::summarise(hectares = sum(hectares)) |> 
+  dplyr::filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow") |>
+  dplyr::mutate(hectares = round(hectares)) |>
+  dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'frcLowCbiLow' ~ "Good Wildfire",
+                                             datNm == 'rxBurnHa' ~ 'Prescribed Burns'))
+
+#4,773,299 - low severity fire
+#3,053,158 - rx burns
+
+
+ggplot2::ggplot(overall)  +
+  geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "      2010-2021 Good Fire in the Western U.S.") +
+  scale_y_continuous(labels=comma) +
+  theme_void() +
+  #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
+  scale_fill_manual(values = plotColors, labels = plotLabels) +
+  geom_text(aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha")), hjust = 1.2, colour = "white", size = 5) +
+  geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = 5) +
+  coord_flip()
+ggplot2::ggsave(here::here(figsDir, 'overall.png'), units = "in", width = 6, height = 2)
+
+```
