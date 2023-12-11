@@ -74,7 +74,7 @@ westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "U
 ```{r}
 #load nfpors
 nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
-                      layer = "West_NFPORS_2010_2021") %>%
+                      layer = "West_NFPORS_2010_2021")|>
   dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
 
 #load facts
@@ -122,9 +122,9 @@ yearsOfInterest = seq(2010,2021)
 
 #Get only prescribed burning activities in the western US in the years we have NFPORS data
 westPBFacts <- facts %>%
-  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(DATE_COMPLETED))) %>%
-  dplyr::filter(STATE_ABBR %in% westAbbrList) %>%
-  dplyr::filter(TREATMENT_TYPE %in% c("Machine Pile Burn", "Jackpot Burn", "Fire Use", "Broadcast Burn", "Hand Pile Burn")) %>%
+  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(DATE_COMPLETED))) |>
+  dplyr::filter(STATE_ABBR %in% westAbbrList) |>
+  dplyr::filter(TREATMENT_TYPE %in% c("Machine Pile Burn", "Jackpot Burn", "Fire Use", "Broadcast Burn", "Hand Pile Burn")) |>
   dplyr::filter(ACTUALCOMPLETIONYEARNEW %in% yearsOfInterest)
 
 unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
@@ -135,22 +135,22 @@ unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
 
 ```{r}
 
-nfporsAllSummary <- nfpors %>%
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>%
-  dplyr::summarize(NFPORS_all = sum(TOTALACCOMPLISHMENT)) %>%
+nfporsAllSummary <- nfpors |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarize(NFPORS_all = sum(TOTALACCOMPLISHMENT)) |>
   sf::st_drop_geometry()
 
 #filter NFPORS to just facts
-nfporsFACTS <- nfpors %>% dplyr::filter(SOURCE == "FACTS")
+nfporsFACTS <- nfpors |> dplyr::filter(SOURCE == "FACTS")
 
-nfporsFACTSSummary <- nfporsFACTS %>%
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>%
-  dplyr::summarize(NFPORS_FACTS = sum(TOTALACCOMPLISHMENT)) %>%
+nfporsFACTSSummary <- nfporsFACTS |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarize(NFPORS_FACTS = sum(TOTALACCOMPLISHMENT)) |>
   sf::st_drop_geometry()
 
-factsSummary <- westPBFacts %>%
-  as.data.frame() %>%
-  dplyr::group_by(STATE_ABBR, ACTUALCOMPLETIONYEARNEW) %>%
+factsSummary <- westPBFacts |>
+  as.data.frame() |>
+  dplyr::group_by(STATE_ABBR, ACTUALCOMPLETIONYEARNEW) |>
   dplyr::summarize(FACTS_gis = sum(GIS_ACRES, na.rm=TRUE),
             FACTS = sum(NBR_UNITS_ACCOMPLISHED))
 
@@ -158,19 +158,19 @@ factsSummary <- westPBFacts %>%
 allSummaryRaw <- left_join(nfporsFACTSSummary, factsSummary,
                            by = c('STATEABBR' = 'STATE_ABBR', 'ACTUALCOMPLETIONYEARNEW' = 'ACTUALCOMPLETIONYEARNEW')) %>%
   left_join(nfporsAllSummary,
-            by = c('STATEABBR' = 'STATEABBR', 'ACTUALCOMPLETIONYEARNEW' = 'ACTUALCOMPLETIONYEARNEW')) %>%
+            by = c('STATEABBR' = 'STATEABBR', 'ACTUALCOMPLETIONYEARNEW' = 'ACTUALCOMPLETIONYEARNEW')) |>
   dplyr::mutate(FACTSGIS_NONGIS_DIFF = FACTS - FACTS_gis,
          FACTS_NFPORS_DIFF = FACTS - NFPORS_FACTS)
 
 #Pivot longer
 allSummaryRawLong <- allSummaryRaw %>% 
-  dplyr::select(-FACTSGIS_NONGIS_DIFF, -FACTS_NFPORS_DIFF) %>%
+  dplyr::select(-FACTSGIS_NONGIS_DIFF, -FACTS_NFPORS_DIFF) |>
   tidyr::pivot_longer(cols = c(FACTS_gis,
                                FACTS,
                                NFPORS_FACTS,
                                NFPORS_all),
                                                     names_to = "datNm",
-                                                    values_to = "acres") %>%
+                                                    values_to = "acres") |>
   dplyr::mutate(hectares = acres * 0.404686) #convert to hectares
 
 #write out dataset
@@ -182,16 +182,16 @@ write_csv(allSummaryRawLong, here::here(derivedDatDir, "rx_dataset_comparison_lo
 
 # Create NFPORS + LCMS data
 
-LCMS data pulled from GEE:
+LCMS & FRG data pulled from GEE:
 https://code.earthengine.google.com/60989ec067bec112f59c9f97d8f86a88
 
 Read in data and reshape, merge with raw NFPORS
 
 ```{r}
 #Read in data from GEE
-lcmsDats <- read_csv(here::here('data', 'derived', 'LCMS_nfpors.csv')) %>%
-  dplyr::select(-`.geo`, -`system:index`) %>%
-  dplyr::mutate(name = paste0("LC_", Year))
+geeNfporsDats <- read_csv(here::here('data', 'derived', 'gee_nfpors.csv')) |>
+  dplyr::select(-`.geo`, -`system:index`) |>
+  dplyr::mutate(name = paste0("LC_", LandCover_Year))
 
 #LCMS classes; for context
 lcmsClasses <- cbind(
@@ -211,30 +211,41 @@ lcmsClasses <- cbind(
     "Snow or Ice",
     "Water",
     "Non-Processing Area Mask")
-) %>%
-  as.data.frame() %>% 
-  `names<-`(c("LandCover", "LandCoverDescription")) %>%
+) |>
+  as.data.frame() |> 
+  `names<-`(c("LandCover", "LandCoverDescription")) |>
    dplyr::mutate(LandCover = as.double(LandCover))
 
+#FRG classes; for context
+frgClasses <- cbind(
+  seq(1,3),
+  c("frcLowMix",
+    "frcReplace",
+    "frcOther")) |>
+  as.data.frame() |>
+  `names<-`(c("FRG", "FRGDescription"))  |>
+   dplyr::mutate(FRG = as.double(FRG))
+
 #Pivot wider
-shortLcmsDats <- lcmsDats %>%
-  dplyr::select(-Year) %>%
+shortGeeNfporsDats <- geeNfporsDats |>
+  dplyr::select(-LandCover_Year) |>
   tidyr::pivot_wider(names_from = name, values_from = LandCover)
 
-#Join together and add column with land cover in burn year & landcover name
-nfporsWithLcms <- nfpors %>%
-  dplyr::mutate(PointId = objectid__) %>%
-  dplyr::left_join(shortLcmsDats, by = c("PointId")) %>%
-  dplyr::mutate(index = paste0("LC_", ACTUALCOMPLETIONYEARNEW)) %>% #THIS AND NEXT TWO LINES DO ROWWISE COMPUTE FOR THE LC_BURNYEAR
-  dplyr::rowwise() %>%
-  dplyr::mutate(LC_BurnYear = get(index)) %>%
-  dplyr::ungroup() %>%
-  as.data.frame() %>%
-  dplyr::left_join(lcmsClasses, by = c("LC_BurnYear" = "LandCover")) %>%
+#Join together and add column with land cover in burn year & landcover name, as well as FRG full name
+nfporsWithGEE <- nfpors|>
+  dplyr::mutate(PointId = objectid__) |>
+  dplyr::left_join(shortGeeNfporsDats, by = c("PointId")) |>
+  dplyr::mutate(index = paste0("LC_", ACTUALCOMPLETIONYEARNEW)) |> #THIS AND NEXT TWO LINES DO ROWWISE COMPUTE FOR THE LC_BURNYEAR
+  dplyr::rowwise() |>
+  dplyr::mutate(LC_BurnYear = get(index)) |>
+  dplyr::ungroup() |>
+  as.data.frame() |>
+  dplyr::left_join(lcmsClasses, by = c("LC_BurnYear" = "LandCover")) |> #join landcover descriptions
+  dplyr::left_join(frgClasses, by = c("FRG")) |> #join FRG descriptions
   dplyr::mutate(TOTALACCOMPLISHMENT_HA = TOTALACCOMPLISHMENT * 0.404686) #convert new HA column
   
 #write out dataset
-write_csv(nfporsWithLcms, here::here(derivedDatDir, "nfpors_with_lcms.csv"))
+write_csv(nfporsWithGEE, here::here(derivedDatDir, "nfpors_with_gee.csv"))
 
 
 ```

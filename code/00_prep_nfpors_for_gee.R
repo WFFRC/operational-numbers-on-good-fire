@@ -37,7 +37,8 @@ here::i_am("code/00_prep_nfpors_for_gee.R")
 here::here() #Check here location
 
 
-#Load data
+#Load data from geodatabase (provided by Karen Cummins, Tall Timbers)
+# Data from National Fire Plan Operations and Reporting System (NFPORS)
 nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
                       layer = "West_NFPORS_2010_2021") %>%
   dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done

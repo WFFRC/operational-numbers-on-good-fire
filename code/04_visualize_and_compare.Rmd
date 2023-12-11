@@ -68,7 +68,7 @@ Read in the data;
 ```{r}
 #From script 02
 rxDatCompare <- read_csv(here::here(derivedDatDir, "rx_dataset_comparison_long_version.csv"))
-nfporsWithLcms <- read_csv(here::here(derivedDatDir, "nfpors_with_lcms.csv"))
+nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee.csv"))
 
 #From script 03 - all 3 sheets of data
 fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Full Data")
@@ -101,12 +101,12 @@ ggplot2::ggsave(here::here(figsDir, 'dataset_comparisons_state_fig.png'), units 
 
 
 #Do without states
-rxDatCompareNoState <- rxDatCompare %>%
-  dplyr::group_by(ACTUALCOMPLETIONYEARNEW, datNm) %>%
+rxDatCompareNoState <- rxDatCompare |>
+  dplyr::group_by(ACTUALCOMPLETIONYEARNEW, datNm) |>
   dplyr::summarise(hectares = sum(hectares))
 
 #Plot differences without state breakdown
-ggplot2::ggplot(rxDatCompareNoState %>% dplyr::filter(datNm == "FACTS" | datNm == "NFPORS_all")) +
+ggplot2::ggplot(rxDatCompareNoState |> dplyr::filter(datNm == "FACTS" | datNm == "NFPORS_all")) +
   geom_line(aes(x = ACTUALCOMPLETIONYEARNEW, y = hectares, col = datNm),
             linetype = "solid") +
   xlab("Year") +
@@ -127,8 +127,8 @@ Perform summaries of rx burn areas by state/year/landcover/WUI
 ```{r}
 
 #Group by state, year, land cover
-stateYearLC <- nfporsWithLcms %>%
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW, LandCoverDescription) %>%
+stateYearLC <- nfporsWithGee |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW, LandCoverDescription) |>
   dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
 
 ggplot(stateYearLC) +
@@ -142,11 +142,11 @@ ggplot(stateYearLC) +
 ggsave(here::here(figsDir, 'rx_by_LC_fig.png'), units = "in", width = 10)
 
 #Filter to just forest rx
-nfporsWithLcmsForest <- nfporsWithLcms %>%
+nfporsWithGeeForest <- nfporsWithGee |>
   filter(LandCoverDescription == "Trees")
 
-stateYearForest <- nfporsWithLcmsForest %>%
-  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) %>%
+stateYearForest <- nfporsWithGeeForest |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
   dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
 
 ggplot(stateYearLC) +
@@ -170,9 +170,9 @@ ggsave(here::here(figsDir, 'rx_forest_by_state_fig_facet.png'), units = "in", wi
 
 
 #Look at WUI rx burn #s
-wuiForest <- nfporsWithLcmsForest %>%
-  dplyr::group_by(iswui, ACTUALCOMPLETIONYEARNEW) %>%
-  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) %>%
+wuiForest <- nfporsWithGeeForest |>
+  dplyr::group_by(iswui, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) |>
   dplyr::filter(!is.na(iswui))
 
 ggplot(wuiForest) +
@@ -187,8 +187,8 @@ ggsave(here::here(figsDir, 'rx_forest_by_wui_fig_facet.png'), units = "in", widt
 
 
 #All as one
-rxForest <- nfporsWithLcmsForest %>%
-  dplyr::group_by(ACTUALCOMPLETIONYEARNEW) %>%
+rxForest <- nfporsWithGeeForest |>
+  dplyr::group_by(ACTUALCOMPLETIONYEARNEW) |>
   dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
 
 ggplot(rxForest) +
@@ -200,6 +200,24 @@ ggplot(rxForest) +
   theme_light()
 ggsave(here::here(figsDir, 'rx_forest_year_fig_facet.png'), units = "in", width = 12)
 
+
+#Examine nfpors FRG classes
+rxForestFRG <- nfporsWithGeeForest |>
+  dplyr::group_by(FRGDescription) |>
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA))
+
+ggplot(rxForestFRG) +
+  geom_col(aes(x = FRGDescription, y = tot, fill = FRGDescription)) +
+  xlab("Fire Regime Group") +
+  ylab("Hectares") +
+  labs(title = "Forest-only Rx Burns by Fire Regime Group")+
+  scale_y_continuous(labels=comma) +
+  theme_light()
+ggsave(here::here(figsDir, 'rx_forest_frg_fig.png'), units = "in", width = 7)
+
+
+#get percentage of rx area occurring in low/mix sev historical fire regimes
+print(glue::glue("{round((2592773.02 / sum(rxForestFRG$tot)) * 100)}% of the rx burn ha are in low/mix severity historical fire regime"))
 
 ```
 
@@ -243,32 +261,35 @@ stateYearCBI <- fullDataMTBS |>
   dplyr::group_by(year, State) |>
   dplyr::summarise(CBIlowmodsev = sum(CBIlowmodsev),
                    CBIhighsev = sum(CBIhighsev),
-                   frcLowCbiLow = sum(frcLowCbiLow)) |>
+                   frcLowCbiLow = sum(frcLowCbiLow),
+                   totNonRxForestBurn = sum(preFireFor)) |>
   dplyr::mutate(frcOtherCbiLow = CBIlowmodsev - frcLowCbiLow) |>
   dplyr::select(-CBIlowmodsev)
 
 
 
 #NFPORS data
-stateYearNFPORSForest <- nfporsWithLcmsForest |>
+stateYearNFPORSForest <- nfporsWithGeeForest |>
   dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
   dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA))
 
 head(stateYearCBI)
 head(stateYearNFPORSForest)
 
-#join
+#Join
 stateYearCompare <- stateYearCBI |>
-  full_join(stateYearNFPORSForest, join_by(State == STATEABBR, year == ACTUALCOMPLETIONYEARNEW))
+  dplyr::full_join(stateYearNFPORSForest, join_by(State == STATEABBR, year == ACTUALCOMPLETIONYEARNEW))
+
 
 stateYearCompareLong <- stateYearCompare |>
     tidyr::pivot_longer(cols = c(frcLowCbiLow,
                                  frcOtherCbiLow,
                                CBIhighsev,
-                               rxBurnHa),
+                               rxBurnHa,
+                               totNonRxForestBurn),
                                                     names_to = "datNm",
                                                     values_to = "hectares") |>
-  dplyr::mutate(datNm = factor(datNm, levels = c("CBIhighsev", "frcOtherCbiLow", "frcLowCbiLow", "rxBurnHa")))
+  dplyr::mutate(datNm = factor(datNm, levels = c("CBIhighsev", "frcOtherCbiLow", "frcLowCbiLow", "rxBurnHa", "totNonRxForestBurn")))
 
 #for just states or just years
 statesCompare <- stateYearCompareLong |> 
@@ -277,6 +298,10 @@ statesCompare <- stateYearCompareLong |>
 yearCompare <- stateYearCompareLong |> 
   dplyr::group_by(year, datNm) |> 
   dplyr::summarize(hectares = sum(hectares, na.rm = TRUE))
+
+
+
+
 
 ```
 
@@ -512,5 +537,136 @@ ggplot2::ggplot(overall)  +
   geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = 5) +
   coord_flip()
 ggplot2::ggsave(here::here(figsDir, 'overall.png'), units = "in", width = 6, height = 2)
+
+```
+
+
+# Add in total wildfire-in-forest area
+
+```{r}
+
+nMTBS <- length(unique(fullDataMTBS$Event_ID))
+unique(nfporsWithGeeForest$TYPENAME)
+nNFPORS <- length(unique(nfporsWithGeeForest$objectid__))
+
+plotColors <- c("seagreen", "goldenrod2", "gray")
+plotLabels <- c("Prescribed Burns", "Good Wildfire", "Total Wildfire")
+ggplot2::ggplot(yearCompare |>
+                  filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow" | datNm == "totNonRxForestBurn") |>
+                  dplyr::mutate(datNm = factor(datNm, levels = c("rxBurnHa", "frcLowCbiLow", "totNonRxForestBurn"))))  +
+  geom_col(aes(x = year, y = hectares, fill = datNm), position = "dodge") +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "Good fire in Western U.S. forests over time") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres",
+                                         labels = comma)) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_year_fig_v2.png'), units = "in", width = 8, bg = "white")
+
+
+ggplot2::ggplot(statesCompare |> 
+                  filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow" | datNm == "totNonRxForestBurn")|>
+                  dplyr::mutate(datNm = factor(datNm, levels = c("rxBurnHa", "frcLowCbiLow", "totNonRxForestBurn"))))  +
+  geom_col(aes(x = State, y = hectares, fill = datNm),
+            linetype = "solid", position = "dodge") +
+  xlab("State") +
+  ylab("Hectares") +
+  labs(title = "Good fire in Western U.S. forests by state") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres",
+                                         labels = comma)) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(here::here(figsDir, 'cbi_rx_states_fig_v2.png'), units = "in", width = 8, bg = "white")
+
+
+
+
+#Get overall #s
+overall <- yearCompare |>
+  dplyr::group_by(datNm) |>
+  dplyr::summarise(hectares = sum(hectares)) |> 
+  dplyr::filter(datNm == "rxBurnHa" | datNm == "frcLowCbiLow" | datNm == "totNonRxForestBurn") |>
+  dplyr::mutate(hectares = round(hectares)) |>
+  dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'frcLowCbiLow' ~ "Good Forest Wildfire",
+                                             datNm == 'rxBurnHa' ~ 'Prescribed \nForest Burns',
+                                             datNm == 'totNonRxForestBurn' ~ 'Total Forest Wildfire')) |>
+  dplyr::mutate(datNm = factor(datNm, levels = c( "totNonRxForestBurn", "frcLowCbiLow", "rxBurnHa"))) |>
+  dplyr::mutate(acres = round(hectares * 2.47105))
+
+
+#4,773,299 - low severity fire
+#3,053,158 - rx burns
+
+
+plotColors <- c("gray", "goldenrod2", "seagreen")
+plotLabels <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+ggplot2::ggplot(overall)  +
+  geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "      2010-2021 Good Fire in Western U.S. Forests") +
+  scale_y_continuous(labels=comma) +
+  theme_void() +
+  #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
+  scale_fill_manual(values = plotColors, labels = plotLabels) +
+  geom_text(data = overall |> filter(datNm != "totNonRxForestBurn"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = -0.1, colour = "black", size = 4) +
+  geom_text(data = overall |> filter(datNm == "totNonRxForestBurn"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = 1.1, colour = "white", size = 4) +
+  geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = 4) +
+  coord_flip()
+ggplot2::ggsave(here::here(figsDir, 'overall.png'), units = "in", width = 6, height = 2.5, bg = "white")
+
+
+
+
+
+#get overall percentages
+states <- statesCompare |> 
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "hectares") |>
+  dplyr::mutate(percGoodOfTot = paste(round(100 * (frcLowCbiLow / totNonRxForestBurn)), "%", sep = "")) |>
+  dplyr::mutate(percRxOfTot = paste(round(100 * (rxBurnHa / totNonRxForestBurn)), "%", sep = ""))|>
+  dplyr::select(State, percGoodOfTot) |>
+  `names<-`(c("State", "Good forest wildfire"))
+years <- yearCompare |> 
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "hectares") |>
+  dplyr::mutate(percGoodOfTot = paste(round(100 * (frcLowCbiLow / totNonRxForestBurn)), "%", sep = "")) |>
+  dplyr::mutate(percRxOfTot = paste(round(100 * (rxBurnHa / totNonRxForestBurn)), "%", sep = "")) |>
+  dplyr::select(year, percGoodOfTot) |>
+  `names<-`(c("Year", "Good forest wildfire"))
+overallP <- yearCompare |> 
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "hectares") |>
+  dplyr::ungroup() |>
+  dplyr::summarise(rxBurnHa = sum(rxBurnHa),
+                   frcLowCbiLow = sum(frcLowCbiLow),
+                   totNonRxForestBurn = sum(totNonRxForestBurn)) |>
+  dplyr::mutate(percGoodOfTot = paste(round(100 * (frcLowCbiLow / totNonRxForestBurn)), "%", sep = ""))|>
+  dplyr::mutate(percRxOfTot = paste(round(100 * (rxBurnHa / totNonRxForestBurn)), "%", sep = "")) |>
+  dplyr::select(percGoodOfTot) |>
+  `names<-`(c("Good forest wildfire"))
+
+#Create nice tables
+kable(years,
+      caption = "Good fire in the western U.S. by year, as a percentage of total forest wildfire (2010-2021)") |>
+  column_spec(2, width = "3cm") |>
+  column_spec(1, width = "2cm") |>
+  kable_classic(full_width = F, html_font = "Calibri")
+kable(states,
+      caption = "Good fire in the western U.S. by state, as a percentage of total forest wildfire (2010-2021)") |>
+  column_spec(2, width = "3cm") |>
+    column_spec(1, width = "2cm") |>
+  kable_classic(full_width = F, html_font = "Calibri")
+kable(overallP,
+      caption = "Good fire in the western U.S. as a percentage of total forest wildfire (2010-2021)") |>
+  column_spec(1, width = "4cm") |>
+  kable_classic(full_width = F, html_font = "Calibri")
 
 ```
