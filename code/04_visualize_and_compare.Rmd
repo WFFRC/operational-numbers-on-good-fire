@@ -1,7 +1,7 @@
 Analyze data to get a number on prescribed burns in the Western US & visualize comparisons to low-severity burns
 Tyler L. McIntosh
 CU Boulder CIRES Earth Lab
-Last updated: 11/15/23
+Last updated: 12/11/23
 
 This script uses the following naming conventions wherever possible:
  lowerCamelCase for variables
@@ -218,6 +218,31 @@ ggsave(here::here(figsDir, 'rx_forest_frg_fig.png'), units = "in", width = 7)
 
 #get percentage of rx area occurring in low/mix sev historical fire regimes
 print(glue::glue("{round((2592773.02 / sum(rxForestFRG$tot)) * 100)}% of the rx burn ha are in low/mix severity historical fire regime"))
+
+#quick investigation of the out-of-regime rx dats
+nfporsWithGeeForest |>
+  dplyr::group_by(TYPENAME, FRGDescription) |>
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) |>
+  ggplot() +
+    geom_col(aes(x = TYPENAME, y = tot, fill = TYPENAME)) +
+    facet_wrap(~FRGDescription)
+nfporsWithGeeForest |>
+  dplyr::group_by(FRGDescription, STATENAME) |>
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) |>
+  ggplot() +
+    geom_col(aes(x = FRGDescription, y = tot, fill = FRGDescription)) +
+    facet_wrap(~STATENAME) +
+  labs(title = "Rx burning by historical regime & state") +
+  theme(axis.text.x = element_blank())
+nfporsWithGeeForest |>
+  dplyr::group_by(FRGDescription, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarise(tot = sum(TOTALACCOMPLISHMENT_HA)) |>
+  ggplot() +
+    geom_col(aes(x = FRGDescription, y = tot, fill = FRGDescription)) +
+    facet_wrap(~ACTUALCOMPLETIONYEARNEW) +
+  labs(title = "Rx burning by historical regime & year") +
+  theme(axis.text.x = element_blank())
+
 
 ```
 

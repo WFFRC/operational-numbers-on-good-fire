@@ -1,0 +1,194 @@
+Examine tabular data from GEE to find good case studies
+Tyler L. McIntosh
+CU Boulder CIRES Earth Lab
+Last updated: 12/12/23
+
+This script uses the following naming conventions wherever possible:
+ lowerCamelCase for variables
+ period.separated for functions
+ underscore_separated for files
+
+# Setup
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+## Libraries ----
+
+#Check the required libraries and download if needed
+list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
+                      "terra",
+                      "sf",
+                      "mapview",
+                      "here",
+                      "future", "future.apply", "furrr", "doFuture", "progressr", #Futureverse!
+                      "tictoc", 
+                      "mblm", #Median-based linear models (i.e. thiel-sen)
+                      "plyr",
+                      "kableExtra", #nice tables
+                      "googlesheets4", #read in google sheet data
+                      "scales", #add commas to ggplot axis
+                      "tigris", #US data
+                      "tmap", #mapping
+                      "scales") #add commas to axis
+
+#Install all packages that aren't installed yet
+install.packages(setdiff(list.of.packages, rownames(installed.packages())))
+
+#Load all packages
+invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisible' to prevent output being displayed
+
+## Clean workspace & set up environment ----
+rm(list=ls()) #Ensure empty workspace if running from beginning
+here::i_am("code/05_explore_case_studies.Rmd")
+here::here() #Check here location
+#OR
+#setwd() #Set working directory directly
+options(digits = 6) #Set standard decimal print output
+options(scipen = 999) #Turn scientific notation on and off (0 = on, 999 = off)
+
+#Ensure necessary directories are created
+figsDir <- here::here("figs")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+
+derivedDatDir <- here::here("data", "derived")
+if (!dir.exists(derivedDatDir)){
+  dir.create(derivedDatDir)
+}
+
+```
+
+# Read in data
+Read in the data;
+-From Rud: https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0
+  (has three tabs of data) - all in HA
+
+```{r}
+#From script 03 - all 3 sheets of data
+fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Full Data")
+
+#Raw MTBS perimeter data
+mtbsPerims <- sf::st_read(here::here('data', 'raw', 'mtbs_perimeter_data_1984_2021', 'mtbs_perims_DD.shp'))
+
+```
+# Look at case studies
+
+```{r}
+
+#Join the event names by event ID (from raw MTBS polygons) & add in percentages
+mtbsNames <- mtbsPerims |>
+  sf::st_drop_geometry() |>
+  dplyr::select(Event_ID, Incid_Name)
+rm(mtbsPerims)
+
+fullDataMTBS <- fullDataMTBS |>
+  dplyr::left_join(mtbsNames) |>
+  dplyr::mutate(goodPercFor = round(100 * (frcLowCbiLow / preFireFor)),
+                goodPercAll = round(100 * (frcLowCbiLow / areaHA)),
+                percFor = round(100 * (preFireFor / areaHA)))
+
+#Filter to CA 
+caDataMtbs <- fullDataMTBS |>
+  dplyr::filter(State == "CA")
+
+
+# #Get top 10 CA events by size
+# caLarge <- caDataMtbs |>
+#   dplyr::arrange(plyr::desc(areaHA)) |>
+#   head(10)
+# 
+# #Get top 10 CA events by 'good forest fire' ha
+# caGoodHa <- caDataMtbs |>
+#   dplyr::arrange(plyr::desc(frcLowCbiLow)) |>
+#   head(10)
+# 
+# 
+# #Get top 10 CA events by % 'good fire' in forest and overall
+# caGoodPercFor<- caDataMtbs |>
+#   dplyr::arrange(plyr::desc(goodPercFor)) |>
+#   head(10)
+# caGoodPercAll<- caDataMtbs |>
+#   dplyr::arrange(plyr::desc(goodPercAll)) |>
+#   head(10)
+
+
+#Get top/bottom N CA data in combined df
+#Top N by area, good fire area, percentage good fire of forested area, and percentage good fire of total area
+#Also bottom N by percentage of good fire of forested area, and the same but limited to fires over largeLimit ha original forest
+topx <- 10
+largeLimit <- 10000
+caDataMtbs <- caDataMtbs %>%
+  dplyr::mutate(haTop = ifelse(Event_ID %in% dplyr::slice_max(., order_by = areaHA, n = topx)$Event_ID, 1, 0),
+                goodHaTop = ifelse(Event_ID %in% dplyr::slice_max(., order_by = frcLowCbiLow, n = topx)$Event_ID, 1, 0),
+                goodPercForTop = ifelse(Event_ID %in% dplyr::slice_max(., order_by = goodPercFor, n = topx)$Event_ID, 1, 0),
+                goodPercForTopLarge = ifelse(Event_ID %in% dplyr::slice_max(dplyr::filter(., preFireFor >= largeLimit), order_by = goodPercFor, n = topx)$Event_ID, 1, 0),
+                goodPercAllTop = ifelse(Event_ID %in% dplyr::slice_max(., order_by = goodPercAll, n = topx)$Event_ID, 1, 0),
+                goodPercForBottom = ifelse(Event_ID %in% dplyr::slice_min(., order_by = goodPercFor, n = topx)$Event_ID, 1, 0),
+                goodPercForBottomLarge = ifelse(Event_ID %in% dplyr::slice_min(dplyr::filter(., preFireFor >= largeLimit), order_by = goodPercFor, n = topx)$Event_ID, 1, 0))
+
+caTop <- caDataMtbs |>
+  dplyr::filter(haTop == 1 | goodHaTop == 1 | goodPercForTop == 1 | goodPercAllTop == 1 | goodPercForTopLarge == 1) |>
+  dplyr::select(Incid_Name, year, areaHA, preFireFor, percFor, goodPercAll, goodPercFor, haTop, goodHaTop, goodPercForTop, goodPercForTopLarge, goodPercAllTop, goodPercForBottomLarge, goodPercForBottom) |>
+  dplyr::arrange(plyr::desc(areaHA))
+
+caBottom <- caDataMtbs |>
+  dplyr::filter(haTop == 1 | goodPercForBottomLarge == 1) |>
+  dplyr::select(Incid_Name, year, areaHA, preFireFor, percFor, goodPercFor, haTop, goodPercForBottomLarge, goodHaTop) |>
+  dplyr::arrange(dplyr::desc(areaHA))
+
+```
+
+# Visualize 'top ten' info
+
+```{r}
+#Use kableExtra to create nice tables to view
+caTop |>
+  `names<-`(c("Incident Name", "Year", "Total ha", "Forest ha", "% forest", "Good fire % of total area", "Good fire % of forest area", glue::glue("In top {topx} by area"), glue::glue("In top {topx} by good fire area"), glue::glue("In top {topx} by good fire % of forest"), glue::glue("In top {topx} by good fire % of forest (fires over {largeLimit}ha only)"), glue::glue("In top {topx} by good fire % of total area"), glue::glue("In bottom {topx} by good fire % of forest (fires over {largeLimit}ha only)"), glue::glue("In bottom {topx} by good fire % of forest"))) |>
+  kableExtra::kable(caption = "Most 'good' forest wildfires in CA") |>
+  kableExtra::kable_paper(full_width = T, html_font = "Calibri") |>
+  kableExtra::column_spec(8, color = ifelse(caTop$haTop == 1, "black", "white")) |>
+  kableExtra::column_spec(9, color = ifelse(caTop$goodHaTop == 1, "green", "white")) |>
+  kableExtra::column_spec(10, color = ifelse(caTop$goodPercForTop == 1, "green", "white")) |>
+  kableExtra::column_spec(11, color = ifelse(caTop$goodPercForTopLarge == 1, "green", "white")) |>
+  kableExtra::column_spec(12, color = ifelse(caTop$goodPercAllTop == 1, "green", "white")) |>
+  kableExtra::column_spec(13, color = ifelse(caTop$goodPercForBottomLarge == 1, "red", "white")) |>
+  kableExtra::column_spec(14, color = ifelse(caTop$goodPercForBottom == 1, "red", "white"))
+
+caBottom |>
+  `names<-`(c("Incident Name", "Year", "Total ha", "Forest ha", "% forest", "Good fire % of forest area", glue::glue("In top {topx} by area"), glue::glue("In bottom {topx} by good fire % of forest (fires over {largeLimit}ha only)"), glue::glue("In top {topx} by good fire area"))) |>
+  kableExtra::kable(caption = "Most 'non-good' forest wildfires in CA") |>
+  kableExtra::kable_paper(full_width = T, html_font = "Calibri") |>
+  kableExtra::column_spec(7, color = ifelse(caBottom$haTop == 1, "black", "white")) |>
+  kableExtra::column_spec(8, color = ifelse(caBottom$goodPercForBottomLarge == 1, "red", "white")) |>
+  kableExtra::column_spec(9, color = ifelse(caBottom$goodHaTop == 1, "green", "white"))
+
+```
+
+# Visualize overall information
+
+```{r}
+ggplot2::ggplot(fullDataMTBS) +
+  ggplot2::geom_point(aes(x = preFireFor, y = frcLowCbiLow, color = State)) +
+  ggplot2::xlab("Pre fire forest") +
+  ggplot2::ylab("Good fire: HA low CBI in low/mod regime") +
+  ggplot2::labs(title = "Forest vs good fire")
+ggplot2::ggplot(fullDataMTBS) +
+  ggplot2::geom_histogram(aes(x = goodPercFor)) +
+  ggplot2::labs(title = "Good Fire histogram (all)")
+ggplot2::ggplot(fullDataMTBS |> dplyr::filter(areaHA > 10000)) +
+  ggplot2::geom_histogram(aes(x = goodPercFor)) +
+  ggplot2::labs(title = "Good Fire histogram (>10,000 ha)",
+                caption = "All fires in western US, 2010-2021") +
+  xlab("Percent of forest burned in good fire")
+ggplot2::ggplot(fullDataMTBS) +
+  ggplot2::geom_histogram(aes(x = goodPercFor)) +
+  ggplot2::facet_wrap(~year)
+ggplot2::ggplot(fullDataMTBS) +
+  ggplot2::geom_point(aes(x = preFireFor, y = goodPercFor, color = State)) +
+  ggplot2::xlim(0,1000)
+
+
+```
+
+
+
