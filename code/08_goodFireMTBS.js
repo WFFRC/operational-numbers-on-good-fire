@@ -1,5 +1,10 @@
 // This script inputs a list of MTBS polygons and calculates low/mod vs. high severity fire for forested pixels. Severity (CBI) is derived from Parks et al.2019 method.
-https://code.earthengine.google.com/?scriptPath=users%2Frudplatt%2FGoodFire%3AgoodFireMTBS
+// https://code.earthengine.google.com/?scriptPath=users%2Frudplatt%2FGoodFire%3AgoodFireMTBS
+
+// A few notes:
+// • The perFireExport task runs the task and reducers for every single polygon individually, and then exports a summary CSV for each event.  This approach runs into memory limitations if you are working with a large number of complex polygons. In that case, you need to either (1) increase the scale, or (2) divide the input polygons into smaller chunks, run the process for each chunk, and combine the CSVs at the end.
+// • The CBIMTBS task runs the task and reducers simultaneously for all features in a featureCollection.  The output is an image rather than a CSV.  To get per-event outputs in a CSV, you need another step: run a spatial reducer of the single image using the featureCollection.  This is much more memory efficient than the perFIreExport task.  The down side: does not deal with overlapping polygons. To work around this, you can run the task for shorter time spans (e.g. fires within single calendar years don’t overlap much).  Then run the spatial reducer for each year-image.  
+
 
 var MTBS = ee.FeatureCollection("USFS/GTAC/MTBS/burned_area_boundaries/v1"),
     cbiViz = {"opacity":1,"bands":["CBI_bc"],"min":0,"max":3,"palette":["ff3925","4eff74"]},
