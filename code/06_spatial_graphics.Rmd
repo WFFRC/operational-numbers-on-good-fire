@@ -67,11 +67,16 @@ Read in the data;
 -NFPORS + GEE extracted data
 
 ```{r}
-#From script 03 - all 3 sheets of data
-fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Full Data")
+#From Rud: MTBS & Small Fire data
+fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "MTBS Fire Events")
+fullDataSmall <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Small Fire Events")
 
 #Raw MTBS perimeter data
 mtbsPerims <- sf::st_read(here::here('data', 'raw', 'mtbs_perimeter_data_1984_2021', 'mtbs_perims_DD.shp'))
+
+#Small fire events from Welty, sent to Rud (generated from script 07)
+weltySmallPerims <- sf::st_read(here::here('data', 'derived', 'welty_jeffries_western_wildfire_sub_1000ac.gpkg')) |>
+  sf::st_transform(sf::st_crs(mtbsPerims)) #reproject to match MTBS
 
 #NFPORS rx data from GEE
 nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee.csv"))
@@ -99,6 +104,38 @@ mtbsPerimsInterest <- mtbsPerims |>
 mtbsPointsInterest <- mtbsPerimsInterest |>
   sf::st_make_valid() |> #Make valid first since there is an invalid polygon in the mix
   sf::st_centroid()
+
+```
+
+# Prep Welty data
+
+```{r}
+
+#Join together perimeters and good fire data
+weltyInterest <- weltySmallPerims |>
+  dplyr::filter(OBJECTID %in% fullDataSmall$OBJECTID) |>
+  dplyr::left_join(fullDataSmall, by = c("OBJECTID")) |>
+  dplyr::mutate(goodPercAll = round(100 * (frcLowCbiLow / GIS_Hectar.y)))
+
+#Get perimeter centroids to use as points
+sf_use_s2(FALSE) #Polygon invalidity not fixed by st_make_valid, turn spherical geometry on and off to get centroids
+weltyPointsInterest <- weltyInterest |>
+  sf::st_make_valid() |> #Make valid first since there is an invalid polygon in the mix
+  sf::st_centroid()
+sf_use_s2(TRUE)
+
+```
+
+#Merge MTBS & Welty data
+
+```{r}
+
+goodFirePoints <- rbind(
+  (mtbsPointsInterest |> dplyr::select(frcLowCbiLow)),
+  (weltyPointsInterest |>
+     dplyr::select(frcLowCbiLow) |>
+     dplyr::rename("geometry" = "geom"))
+)
 
 ```
 
@@ -135,10 +172,10 @@ rngMax = 5
 #Create plot with both on one
 ggplot2::ggplot() +
   ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = mtbsPointsInterest, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top)") +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(mtbsPointsInterest$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
                                  name = "Hectares",
                                  range = c(0, rngMax)) +
   theme_bw()
@@ -147,9 +184,9 @@ ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1.png'), units = "i
 ggplot2::ggplot() +
   ggplot2::geom_sf(data = west, aes(), fill = "white") +
     ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::geom_sf(data = mtbsPointsInterest, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (fire on top)") +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(mtbsPointsInterest$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
                                  name = "Hectares",
                                  range = c(0, rngMax)) +
   theme_bw()
@@ -159,8 +196,8 @@ ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1v2.png'), units = 
 #Create plot with two separate
 goodFirePlot <- ggplot2::ggplot() +
   ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = mtbsPointsInterest, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(mtbsPointsInterest$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
                                  name = "Good Fire\nHa",
                                  range = c(0, rngMax)) +
   theme_bw()
@@ -168,7 +205,7 @@ goodFirePlot <- ggplot2::ggplot() +
 rxFirePlot <- ggplot2::ggplot() +
   ggplot2::geom_sf(data = west, aes(), fill = "white") +
   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(mtbsPointsInterest$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
                                  name = "Rx Ha",
                                  range = c(0, rngMax)) +
   theme_bw()
