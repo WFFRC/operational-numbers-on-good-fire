@@ -77,17 +77,36 @@ stateSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/
 mtbs <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "MTBS Fire Events")
 smallFires <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Small Fire Events")
 
-```
-
-
-# Combine rx & low-CBI from Rud
-
-```{r}
-
 #Filter to just forest rx
 nfporsWithGeeForest <- nfporsWithGee |>
   filter(LandCoverDescription == "Trees")
 
+```
+
+
+# Summary stats
+```{r}
+
+#Summary stats
+totHighGood <- sum(yearSummary$`High Goodfire (CBI High FRG Replacement, HA)`)
+totLowGood <- sum(yearSummary$`Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`)
+totForFire <- sum(yearSummary$`burnFor (low+mod+high CBI, HA)`)
+totRxForest <- sum(dplyr::filter(nfporsWithGeeForest, ACTUALCOMPLETIONYEARNEW < 2021)$TOTALACCOMPLISHMENT_HA)
+totAllGood <- sum(totLowGood, totHighGood)
+
+#Summary notes
+nfires <- length(unique(mtbs$Event_ID)) + length(unique((smallFires$OBJECTID)))
+rxTypes <- unique(nfporsWithGeeForest$TYPENAME)
+nNFPORS <- length(unique(nfporsWithGeeForest$objectid__))
+
+print(glue::glue("This analysis included {comma(nfires)} total fire event perimeters, and {comma(nNFPORS)} total prescribed fire event instances. \n\n 'Prescribed fire' was defined as including {paste(rxTypes, collapse = ', ')} management actions. \n\n The total area of low/mod goodfire is {comma(round(totLowGood))} ha, while the total area of high goodfire is {comma(round(totHighGood))} ha. These are respectively {round((totLowGood / totForFire) * 100)}% and {round((totHighGood / totForFire) * 100)}% of the total area of forest burned. High good fire is {round((totHighGood / totLowGood) * 100)}% of the amount of low/mod goodfire. \n\n Low/mod goodfire is {round(((totLowGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning. High goodfire is {round((totHighGood / totRxForest) * 100)}% of the area accomplished by prescribed burning. \n\n If we combine high and low/mod good fire, we get {comma(round(totAllGood))} ha of total good fire, which is {round((totAllGood / totForFire) * 100)}% of the total area of forest burned, and {round(((totAllGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning"))
+
+
+```
+
+# Combine rx & low-CBI from Rud
+
+```{r}
 
 #STATE SUMMARY
 
@@ -110,9 +129,13 @@ yearAll <- nfporsWithGeeForest |>
 #A specific version of pivot_longer to do what is specifically required here
 pivot.longer <- function(dat) {
   out <- dat |>
-    dplyr::rename(goodFire = `Goodfire (Low/mod in FRG low/mod, HA)`) %>%
-    {if("Percent goodfire" %in% names(.)) { 
-      dplyr::select(., -`Percent goodfire`, -`Low/Mod CBI (HA)`, -`High CBI (HA)`)
+    dplyr::rename(goodFire = `Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`,
+                  burnFor = `burnFor (low+mod+high CBI, HA)`) %>%
+    {if("% low/mod that is goodfire" %in% names(.)) { 
+      dplyr::select(., -`% low/mod that is goodfire`, -`% high that is goodfire`, -`% low/mod/high that is goodfire`)
+    } else . } %>%
+    {if("Low/Mod CBI (HA)" %in% names(.)) { 
+      dplyr::select(., -`Low/Mod CBI (HA)`, -`High CBI (HA)`, -`High Goodfire (CBI High FRG Replacement, HA)`)
     } else . } |>
     tidyr::pivot_longer(cols = c(rxBurnHa,
                                  goodFire,
@@ -128,8 +151,8 @@ yearAllLong <- yearAll |> pivot.longer()
 stateAllLong <- stateAll |> pivot.longer()
 allLong <- yearAll |>
   dplyr::summarise(rxBurnHa = sum(rxBurnHa),
-                   `Goodfire (Low/mod in FRG low/mod, HA)` = sum(`Goodfire (Low/mod in FRG low/mod, HA)`),
-                   burnFor = sum(burnFor)) |>
+                   `Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)` = sum(`Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`),
+                   `burnFor (low+mod+high CBI, HA)` = sum(`burnFor (low+mod+high CBI, HA)`)) |>
   pivot.longer() |>
   dplyr::mutate(hectares = round(hectares)) |>
   dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'goodFire' ~ "Good Forest Wildfire",
@@ -143,13 +166,6 @@ allLong <- yearAll |>
 # Graphics
 
 ```{r}
-
-#Summary notes
-nfires <- length(unique(mtbs$Event_ID)) + length(unique((smallFires$OBJECTID)))
-rxTypes <- unique(nfporsWithGeeForest$TYPENAME)
-nNFPORS <- length(unique(nfporsWithGeeForest$objectid__))
-
-print(glue::glue("This analysis included {nfires} total fire event perimeters, and {nNFPORS} total prescribed fire event instances. 'Prescribed fire' was defined as including {paste(rxTypes, collapse = ', ')} management actions."))
 
 #Set graphic parameters
 plotColors <- c("seagreen", "goldenrod2", "gray")
@@ -220,7 +236,7 @@ combinedPlot <- gridExtra::arrangeGrob(overallGraphic,
                                        stateGraphic + ggplot2::labs(title = NULL),
                                        yearGraphic + ggplot2::labs(title = NULL),
                                        layout_matrix = lay, top = "Good Fire & Rx in the Western US")
-ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'test.png'), units = "in", width = 10)
+ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'combined_fig1.png'), units = "in", width = 10)
 
 
 ```
@@ -252,11 +268,7 @@ overallTbl <- stateAllLong |>
       dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = ""),
                     Group = "All")
   ) |>
-  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round)) #|>
-  # dplyr::rename(`Prescribed burn forest HA` = rxBurnHa,
-  #               `Good forest wildfire HA` = goodFire,
-  #               `Total forest wildfire HA` = burnFor,
-  #               `Good forest wildfire as a percentage of total forest wildfire` = percGoodOfTot)
+  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
 
 #Create nice table
 kable(overallTbl,
