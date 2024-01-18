@@ -1,0 +1,299 @@
+Analyze data to get a number on prescribed burns in the Western US & visualize comparisons to low-severity burns
+Tyler L. McIntosh
+CU Boulder CIRES Earth Lab
+Last updated: 1/4/23
+
+This script uses the following naming conventions wherever possible:
+ lowerCamelCase for variables
+ period.separated for functions
+ underscore_separated for files
+
+# Setup
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+## Libraries ----
+
+#Check the required libraries and download if needed
+list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
+                      "terra",
+                      "sf",
+                      "mapview",
+                      "here",
+                      "future", "future.apply", "furrr", "doFuture", "progressr", #Futureverse!
+                      "tictoc", 
+                      "mblm", #Median-based linear models (i.e. thiel-sen)
+                      "plyr",
+                      "gridExtra", #complex graphics
+                      "kableExtra", #nice tables
+                      "googlesheets4", #read in google sheet data
+                      "scales", #add commas to ggplot axis
+                      "tigris", #US data
+                      "tmap", #mapping
+                      "scales") #add commas to axis
+
+#Install all packages that aren't installed yet
+install.packages(setdiff(list.of.packages, rownames(installed.packages())))
+
+#Load all packages
+invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisible' to prevent output being displayed
+
+## Clean workspace & set up environment ----
+rm(list=ls()) #Ensure empty workspace if running from beginning
+here::i_am("code/09_visualize_new_data.Rmd")
+here::here() #Check here location
+#OR
+#setwd() #Set working directory directly
+options(digits = 6) #Set standard decimal print output
+options(scipen = 999) #Turn scientific notation on and off (0 = on, 999 = off)
+
+#Ensure necessary directories are created
+figsDir <- here::here("figs")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+figsDir <- here::here("figs/lcms_only")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+
+derivedDatDir <- here::here("data", "derived")
+if (!dir.exists(derivedDatDir)){
+  dir.create(derivedDatDir)
+}
+
+```
+
+# Read in data
+Read in the data;
+-From Rud
+-From rx burn data munging & collating
+
+
+```{r}
+#From script 02
+nfporsWithGee <- readr::read_csv(here::here(derivedDatDir, "nfpors_with_gee_lcms_lcmap.csv"))
+
+#NEW data summaries from Rud, includes small fires
+yearSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1D1XMgYg0z2ba-gqHh8MVVMN6iTOHLbi_v6pIOiloi3g/edit?pli=1#gid=1307905708", sheet = "Year Summary", range = "A1:J12")
+stateSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1D1XMgYg0z2ba-gqHh8MVVMN6iTOHLbi_v6pIOiloi3g/edit?pli=1#gid=1307905708", sheet = "State Summary", range = "A1:K12")
+
+#OLD data from Rud, events
+mtbs <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "MTBS Fire Events")
+smallFires <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Small Fire Events")
+
+#Filter to just forest rx
+nfporsWithGeeForest <- nfporsWithGee |>
+  filter(LCMS_PreBurnYear == 1)
+
+#Remove strange new empty column
+stateSummary <- stateSummary |> dplyr::select(-`...7`)
+yearSummary <- yearSummary |> dplyr::select(-`...6`)
+
+
+```
+
+
+# Summary stats
+```{r}
+
+#Summary stats
+totHighGood <- sum(yearSummary$`High Goodfire (CBI High FRG Replacement, HA)`)
+totLowGood <- sum(yearSummary$`Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`)
+totForFire <- sum(yearSummary$`burnFor (low+mod+high CBI, HA)`)
+totRxForest <- sum(dplyr::filter(nfporsWithGeeForest, ACTUALCOMPLETIONYEARNEW < 2021)$TOTALACCOMPLISHMENT_HA)
+totAllGood <- sum(totLowGood, totHighGood)
+
+#Summary notes
+nfires <- length(unique(mtbs$Event_ID)) + length(unique((smallFires$OBJECTID)))
+rxTypes <- unique(nfporsWithGeeForest$TYPENAME)
+nNFPORS <- length(unique(nfporsWithGeeForest$objectid__))
+
+summaryStats <- glue::glue("This analysis included {comma(nfires)} total fire event perimeters, and {comma(nNFPORS)} total prescribed fire event instances. \n\n 'Prescribed fire' was defined as including {paste(rxTypes, collapse = ', ')} management actions. \n\n The total area of low/mod goodfire is {comma(round(totLowGood))} ha, while the total area of high goodfire is {comma(round(totHighGood))} ha. These are respectively {round((totLowGood / totForFire) * 100)}% and {round((totHighGood / totForFire) * 100)}% of the total area of forest burned. High good fire is {round((totHighGood / totLowGood) * 100)}% of the amount of low/mod goodfire. \n\n There were {comma(round(totRxForest))} ha of prescribed forest fires. Low/mod goodfire is {round(((totLowGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning. High goodfire is {round((totHighGood / totRxForest) * 100)}% of the area accomplished by prescribed burning. \n\n If we combine high and low/mod good fire, we get {comma(round(totAllGood))} ha of total good fire, which is {round((totAllGood / totForFire) * 100)}% of the total area of forest burned, and {round(((totAllGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning")
+print(summaryStats)
+sink(here::here(figsDir, "summary.txt"))
+cat(glue::glue("Analysis most recent run: {Sys.time()} \n\n\n"))
+cat(summaryStats)
+sink()
+
+
+```
+
+# Combine rx & low-CBI from Rud
+
+```{r}
+
+#STATE SUMMARY
+
+stateAll <- nfporsWithGeeForest |>
+  dplyr::group_by(STATEABBR) |>
+  dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA)) |>
+  dplyr::left_join(stateSummary, join_by(STATEABBR == STUSPS))
+
+
+#YEAR SUMMARY
+
+yearAll <- nfporsWithGeeForest |>
+  dplyr::group_by(ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA)) |>
+  dplyr::left_join(yearSummary, join_by(ACTUALCOMPLETIONYEARNEW == year)) |>
+  dplyr::rename(year = ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::filter(year < 2021) |>
+  dplyr::mutate(year = as.character(year))
+
+#A specific version of pivot_longer to do what is specifically required here
+pivot.longer <- function(dat) {
+  out <- dat |>
+    dplyr::rename(goodFire = `Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`,
+                  burnFor = `burnFor (low+mod+high CBI, HA)`) %>%
+    {if("% low/mod that is goodfire" %in% names(.)) { 
+      dplyr::select(., -`% low/mod that is goodfire`, -`% high that is goodfire`, -`% low/mod/high that is goodfire`)
+    } else . } %>%
+    {if("Low/Mod CBI (HA)" %in% names(.)) { 
+      dplyr::select(., -`Low/Mod CBI (HA)`, -`High CBI (HA)`, -`High Goodfire (CBI High FRG Replacement, HA)`)
+    } else . } |>
+    tidyr::pivot_longer(cols = c(rxBurnHa,
+                                 goodFire,
+                                 burnFor),
+                        names_to =  "datNm",
+                        values_to = "hectares") |>
+    dplyr::mutate(datNm = factor(datNm, levels = c("rxBurnHa", "goodFire", "burnFor")))
+  return(out)
+}
+
+#Use function
+yearAllLong <- yearAll |> pivot.longer()
+stateAllLong <- stateAll |> pivot.longer()
+allLong <- yearAll |>
+  dplyr::summarise(rxBurnHa = sum(rxBurnHa),
+                   `Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)` = sum(`Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`),
+                   `burnFor (low+mod+high CBI, HA)` = sum(`burnFor (low+mod+high CBI, HA)`)) |>
+  pivot.longer() |>
+  dplyr::mutate(hectares = round(hectares)) |>
+  dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'goodFire' ~ "Good Forest Wildfire",
+                                             datNm == 'rxBurnHa' ~ 'Prescribed \nForest Burns',
+                                             datNm == 'burnFor' ~ 'Total Forest Wildfire')) |>
+  dplyr::mutate(datNm = factor(datNm, levels = c( "burnFor", "goodFire", "rxBurnHa"))) |>
+  dplyr::mutate(acres = round(hectares * 2.47105))
+
+```
+
+# Graphics
+
+```{r}
+
+#Set graphic parameters
+plotColors <- c("seagreen", "goldenrod2", "gray")
+plotLabels <- c("Prescribed Burns", "Good Wildfire", "Total Wildfire")
+
+#Year graphic
+yearGraphic <- ggplot2::ggplot(yearAllLong)  +
+  geom_col(aes(x = year, y = hectares, fill = datNm),
+           position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "Good fire in Western U.S. forests over time") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres",
+                                         labels = comma)) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(plot = yearGraphic, filename = here::here(figsDir, 'cbi_rx_year_fig_v3.png'), units = "in", width = 8, bg = "white")
+
+#State graphic
+stateGraphic <- ggplot2::ggplot(stateAllLong)  +
+  geom_col(aes(x = STATEABBR, y = hectares, fill = datNm),
+            position = "dodge", show.legend = FALSE) +
+  xlab("State") +
+  ylab("Hectares") +
+  labs(title = "Good fire in Western U.S. forests by state") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres",
+                                         labels = comma)) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(plot = stateGraphic, filename = here::here(figsDir, 'cbi_rx_states_fig_v3.png'), units = "in", width = 8, bg = "white")
+
+#Overall graphic
+  #Needs different parameters since turned sideways
+  plotColors2 <- c("gray", "goldenrod2", "seagreen")
+  plotLabels2 <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+overallGraphic <- ggplot2::ggplot(allLong)  +
+  geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "      2010-2020 Good Fire in Western U.S. Forests") +
+  scale_y_continuous(labels=comma) +
+  theme_void() +
+  #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
+  scale_fill_manual(values = plotColors2, labels = plotLabels2) +
+  geom_text(data = allLong |> filter(datNm != "burnFor"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = -0.1, colour = "black", size = 4) +
+  geom_text(data = allLong |> filter(datNm == "burnFor"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = 1.1, colour = "white", size = 4) +
+  geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = 4) +
+  coord_flip()
+ggplot2::ggsave(plot = overallGraphic, filename = here::here(figsDir, 'overall_v2.png'), units = "in", width = 6, height = 2.5, bg = "white")
+
+```
+
+# Combined graphic
+
+```{r}
+
+#Arranging complex grobs: https://cran.r-project.org/web/packages/gridExtra/vignettes/arrangeGrob.html
+lay <- rbind(c(1, NA),
+             c(2,3))
+
+combinedPlot <- gridExtra::arrangeGrob(overallGraphic,
+                                       stateGraphic + ggplot2::labs(title = NULL),
+                                       yearGraphic + ggplot2::labs(title = NULL),
+                                       layout_matrix = lay)#,
+                                       #top = "Good Fire & Rx in the Western US")
+ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'combined_fig1.png'), units = "in", width = 10)
+
+
+```
+
+# Tables
+
+```{r}
+
+#Get table with overall numbers
+overallTbl <- stateAllLong |> 
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "hectares") |>
+  dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
+  #dplyr::mutate(percRxOfTot = paste(round(100 * (rxBurnHa / burnFor)), "%", sep = "")) |>
+  dplyr::select(-STATEABBR) |>
+  dplyr::rename(Group = NAME) |>
+  rbind(
+    yearAllLong |>
+      tidyr::pivot_wider(names_from = "datNm",
+                         values_from = "hectares") |>
+      dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
+      dplyr::rename(Group = year)
+  ) |>
+  rbind(
+    allLong |>
+      dplyr::select(-datNmFull, -acres) |>
+      tidyr::pivot_wider(names_from = "datNm",
+                         values_from = "hectares") |>
+      dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = ""),
+                    Group = "All")
+  ) |>
+  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
+
+#Create nice table
+kable(overallTbl,
+      caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
+      format.args = list(big.mark = ","),
+      align = rep('l', 5),
+      col.names = c("Group","Prescribed burn forest HA", "Good forest wildfire HA", "Total forest wildfire HA", "Good forest wildfire as a percentage of total forest wildfire")) |>
+  column_spec(1, width = "2cm") |>
+  column_spec(2:5, width = "3cm") |>
+  kable_classic(full_width = F, html_font = "Calibri") |>
+  save_kable(here::here(figsDir, 'summary_table_v1.png'))
+
+```

@@ -1,7 +1,7 @@
 Analyze data to get a number on prescribed burns in the Western US & visualize comparisons to low-severity burns
 Tyler L. McIntosh
 CU Boulder CIRES Earth Lab
-Last updated: 1/4/23
+Last updated: 1/17/23
 
 This script uses the following naming conventions wherever possible:
  lowerCamelCase for variables
@@ -39,7 +39,7 @@ invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisi
 
 ## Clean workspace & set up environment ----
 rm(list=ls()) #Ensure empty workspace if running from beginning
-here::i_am("code/08_visualize_new_data.Rmd")
+here::i_am("code/10_visualize_new_data_conservative.Rmd")
 here::here() #Check here location
 #OR
 #setwd() #Set working directory directly
@@ -51,6 +51,11 @@ figsDir <- here::here("figs")
 if (!dir.exists(figsDir)){
   dir.create(figsDir)
 }
+figsDir <- here::here("figs/both_lcms_lcmap")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+
 
 derivedDatDir <- here::here("data", "derived")
 if (!dir.exists(derivedDatDir)){
@@ -67,11 +72,11 @@ Read in the data;
 
 ```{r}
 #From script 02
-nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee.csv"))
+nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee_lcms_lcmap.csv"))
 
 #NEW data summaries from Rud, includes small fires
-yearSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1D1XMgYg0z2ba-gqHh8MVVMN6iTOHLbi_v6pIOiloi3g/edit?pli=1#gid=1307905708", sheet = "Year Summary", range = "A1:F12")
-stateSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1D1XMgYg0z2ba-gqHh8MVVMN6iTOHLbi_v6pIOiloi3g/edit?pli=1#gid=1307905708", sheet = "State Summary")
+yearSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1wUWLin5cXSd9uflna9f_hliz5HEWxOcc7a58mtDziEk/edit#gid=1307905708", sheet = "Year Summary", range = "A1:J12")
+stateSummary <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1wUWLin5cXSd9uflna9f_hliz5HEWxOcc7a58mtDziEk/edit#gid=1307905708", sheet = "State Summary", range = "A1:K12")
 
 #OLD data from Rud, events
 mtbs <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "MTBS Fire Events")
@@ -79,7 +84,11 @@ smallFires <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/
 
 #Filter to just forest rx
 nfporsWithGeeForest <- nfporsWithGee |>
-  filter(LandCoverDescription == "Trees")
+  filter(LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4)
+
+#Remove new unburned column
+yearSummary <- yearSummary |> dplyr::select(-Unburned)
+stateSummary <- stateSummary |> dplyr::select(-Unburned)
 
 ```
 
@@ -99,7 +108,12 @@ nfires <- length(unique(mtbs$Event_ID)) + length(unique((smallFires$OBJECTID)))
 rxTypes <- unique(nfporsWithGeeForest$TYPENAME)
 nNFPORS <- length(unique(nfporsWithGeeForest$objectid__))
 
-print(glue::glue("This analysis included {comma(nfires)} total fire event perimeters, and {comma(nNFPORS)} total prescribed fire event instances. \n\n 'Prescribed fire' was defined as including {paste(rxTypes, collapse = ', ')} management actions. \n\n The total area of low/mod goodfire is {comma(round(totLowGood))} ha, while the total area of high goodfire is {comma(round(totHighGood))} ha. These are respectively {round((totLowGood / totForFire) * 100)}% and {round((totHighGood / totForFire) * 100)}% of the total area of forest burned. High good fire is {round((totHighGood / totLowGood) * 100)}% of the amount of low/mod goodfire. \n\n Low/mod goodfire is {round(((totLowGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning. High goodfire is {round((totHighGood / totRxForest) * 100)}% of the area accomplished by prescribed burning. \n\n If we combine high and low/mod good fire, we get {comma(round(totAllGood))} ha of total good fire, which is {round((totAllGood / totForFire) * 100)}% of the total area of forest burned, and {round(((totAllGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning"))
+summaryStats <- glue::glue("This analysis included {comma(nfires)} total fire event perimeters, and {comma(nNFPORS)} total prescribed fire event instances. \n\n 'Prescribed fire' was defined as including {paste(rxTypes, collapse = ', ')} management actions. \n\n The total area of low/mod goodfire is {comma(round(totLowGood))} ha, while the total area of high goodfire is {comma(round(totHighGood))} ha. These are respectively {round((totLowGood / totForFire) * 100)}% and {round((totHighGood / totForFire) * 100)}% of the total area of forest burned. High good fire is {round((totHighGood / totLowGood) * 100)}% of the amount of low/mod goodfire. \n\n There were {comma(round(totRxForest))} ha of prescribed forest fires. Low/mod goodfire is {round(((totLowGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning. High goodfire is {round((totHighGood / totRxForest) * 100)}% of the area accomplished by prescribed burning. \n\n If we combine high and low/mod good fire, we get {comma(round(totAllGood))} ha of total good fire, which is {round((totAllGood / totForFire) * 100)}% of the total area of forest burned, and {round(((totAllGood - totRxForest) / totRxForest) * 100)}% more by area than what was accomplished by prescribed burning")
+print(summaryStats)
+sink(here::here(figsDir, "summary.txt"))
+cat(glue::glue("Analysis most recent run: {Sys.time()} \n\n\n"))
+cat(summaryStats)
+sink()
 
 
 ```
@@ -168,7 +182,7 @@ allLong <- yearAll |>
 ```{r}
 
 #Set graphic parameters
-plotColors <- c("seagreen", "goldenrod2", "gray")
+plotColors <- c("seagreen", "#dc0ab4ff", "gray")
 plotLabels <- c("Prescribed Burns", "Good Wildfire", "Total Wildfire")
 
 #Year graphic
@@ -177,7 +191,7 @@ yearGraphic <- ggplot2::ggplot(yearAllLong)  +
            position = "dodge", show.legend = FALSE) +
   xlab("Year") +
   ylab("Hectares") +
-  labs(title = "Good fire in Western U.S. forests over time") +
+  labs(title = "Good fire in Western U.S. forests over time (conservative estimate)") +
   scale_y_continuous(labels=comma,
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres",
@@ -193,7 +207,7 @@ stateGraphic <- ggplot2::ggplot(stateAllLong)  +
             position = "dodge", show.legend = FALSE) +
   xlab("State") +
   ylab("Hectares") +
-  labs(title = "Good fire in Western U.S. forests by state") +
+  labs(title = "Good fire in Western U.S. forests by state (conservative estimate)") +
   scale_y_continuous(labels=comma,
                      sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
                                          name = "Acres",
@@ -205,13 +219,13 @@ ggplot2::ggsave(plot = stateGraphic, filename = here::here(figsDir, 'cbi_rx_stat
 
 #Overall graphic
   #Needs different parameters since turned sideways
-  plotColors2 <- c("gray", "goldenrod2", "seagreen")
+  plotColors2 <- c("gray", "#dc0ab4ff", "seagreen")
   plotLabels2 <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
 overallGraphic <- ggplot2::ggplot(allLong)  +
   geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
   xlab("Year") +
   ylab("Hectares") +
-  labs(title = "      2010-2020 Good Fire in Western U.S. Forests") +
+  labs(title = "      2010-2020 Good Fire in Western U.S. Forests (conservative estimate)") +
   scale_y_continuous(labels=comma) +
   theme_void() +
   #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
@@ -235,7 +249,8 @@ lay <- rbind(c(1, NA),
 combinedPlot <- gridExtra::arrangeGrob(overallGraphic,
                                        stateGraphic + ggplot2::labs(title = NULL),
                                        yearGraphic + ggplot2::labs(title = NULL),
-                                       layout_matrix = lay, top = "Good Fire & Rx in the Western US")
+                                       layout_matrix = lay)#,
+                                       #top = "Good Fire & Rx in the Western US (conservative estimate)")
 ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'combined_fig1.png'), units = "in", width = 10)
 
 
@@ -272,7 +287,7 @@ overallTbl <- stateAllLong |>
 
 #Create nice table
 kable(overallTbl,
-      caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
+      caption = "Good fire in the western U.S. by year, state, and overall (2010-2020) (conservative estimate)",
       format.args = list(big.mark = ","),
       align = rep('l', 5),
       col.names = c("Group","Prescribed burn forest HA", "Good forest wildfire HA", "Total forest wildfire HA", "Good forest wildfire as a percentage of total forest wildfire")) |>
@@ -280,5 +295,115 @@ kable(overallTbl,
   column_spec(2:5, width = "3cm") |>
   kable_classic(full_width = F, html_font = "Calibri") |>
   save_kable(here::here(figsDir, 'summary_table_v1.png'))
+
+```
+
+# Create CA graphics
+
+```{r california-graphics}
+
+
+#Pull data by-year for CA, calculate totals
+#NEW data summaries from Rud, includes small fires
+cbiLowAll <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1wUWLin5cXSd9uflna9f_hliz5HEWxOcc7a58mtDziEk/edit#gid=1307905708", sheet = "CBI lowmod All", range = "A1:N13")
+cbiHighAll <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1wUWLin5cXSd9uflna9f_hliz5HEWxOcc7a58mtDziEk/edit#gid=1307905708", sheet = "CBI high all", range = "A1:N13")
+cbiGood <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1wUWLin5cXSd9uflna9f_hliz5HEWxOcc7a58mtDziEk/edit#gid=1307905708", sheet = "CBI lowmod FRG lowmod", range = "A1:N13")
+
+
+#A function to get CA stats in long form from Rud's summaries
+get.Ca.Stats <- function(dats, fieldnm) {
+  out <- dats |>
+  dplyr::select(-`Total (HA)`) |>
+  dplyr::filter(NAME == "California") |>
+  tidyr::pivot_longer(cols = b2010:b2020,
+                      names_to = c("year"),
+                      values_to = fieldnm)
+  return(out)
+}
+
+
+#Create CA by time dataset
+#do rx data
+caRxTime <- nfporsWithGeeForest |>
+  dplyr::filter(STATEABBR == "CA") |>
+  dplyr::group_by(STATEABBR, ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA)) |>
+  dplyr::rename(year = ACTUALCOMPLETIONYEARNEW) |>
+  dplyr::ungroup() |>
+  dplyr::select(-STATEABBR)
+
+#Merge to dats from Rud
+caTimeStatsLong <- cbiLowAll |>
+  get.Ca.Stats("CBILow") |>
+  dplyr::left_join(cbiHighAll |> get.Ca.Stats("CBIHigh")) |>
+  dplyr::left_join(cbiGood |> get.Ca.Stats("goodFire")) |> #merge all the data for CA
+  dplyr::mutate(burnFor = CBILow+CBIHigh, #Get burnFor
+                year = as.integer(substr(year, 2, nchar(year)))) |>
+  dplyr::mutate(burnFor = burnFor*0.0001,
+                goodFire = goodFire*0.0001) |> #convert to HA from m^2
+  dplyr::select(-CBILow, -CBIHigh, -NAME, -STUSPS) |>
+  dplyr::left_join(caRxTime) |>
+  tidyr::pivot_longer(cols = c(rxBurnHa,
+                             goodFire,
+                             burnFor),
+                      names_to =  "datNm",
+                      values_to = "hectares") |>
+  dplyr::mutate(datNm = factor(datNm, levels = c("rxBurnHa", "goodFire", "burnFor")),
+                year = as.character(year))
+  
+
+
+#Get overall CA stats for overall summary graphic
+caLong <- stateAllLong |>
+  dplyr::filter(STATEABBR == "CA") |>
+  dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'goodFire' ~ "Good Forest Wildfire",
+                                             datNm == 'rxBurnHa' ~ 'Prescribed \nForest Burns',
+                                             datNm == 'burnFor' ~ 'Total Forest Wildfire')) |>
+  dplyr::mutate(datNm = factor(datNm, levels = c( "burnFor", "goodFire", "rxBurnHa"))) |>
+  dplyr::mutate(acres = round(hectares * 2.47105))
+
+
+#CA summary graphic
+  #Needs different parameters since turned sideways
+  plotColors2 <- c("gray", "#dc0ab4ff", "seagreen")
+  plotLabels2 <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+  
+caSummary <- ggplot2::ggplot(caLong) +
+  geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  labs(title = "      2010-2020 Good Fire in California Forests (conservative estimate)") +
+  scale_y_continuous(labels=comma) +
+  theme_void() +
+  #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
+  scale_fill_manual(values = plotColors2, labels = plotLabels2) +
+  geom_text(data = caLong |> filter(datNm != "burnFor"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = -0.1, colour = "black", size = 4) +
+  geom_text(data = caLong |> filter(datNm == "burnFor"), aes(x = datNm, y = hectares, label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")), hjust = 1.1, colour = "white", size = 4) +
+  geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = 4) +
+  coord_flip()  
+caSummary
+
+ggplot2::ggsave(plot = caSummary, filename = here::here(figsDir, 'california_summary.png'), units = "in", width = 6, height = 2.5, bg = "white")
+
+#Year graphic
+plotColors <- c("seagreen", "#dc0ab4ff", "gray")
+plotLabels <- c("Prescribed Burns", "Good Wildfire", "Total Wildfire")
+caYearGraphic <- ggplot2::ggplot(caTimeStatsLong)  +
+  geom_col(aes(x = year, y = hectares, fill = datNm),
+           position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Hectares") +
+  #labs(title = "Good fire in California forests over time (conservative estimate)") +
+  scale_y_continuous(labels=comma,
+                     sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                                         name = "Acres",
+                                         labels = comma)) +
+  theme_light() +
+  theme(legend.title = element_blank()) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+ggplot2::ggsave(plot = caYearGraphic, filename = here::here(figsDir, 'ca_time.png'), units = "in", width = 6, height = 3, bg = "white")
+
+
+
 
 ```
