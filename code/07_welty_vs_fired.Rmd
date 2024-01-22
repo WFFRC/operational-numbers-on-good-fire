@@ -124,7 +124,7 @@ glue::glue("Fires greater than 1,000 acres in the western US in our time period 
 
 glue::glue("Fires less than 1,000 acres in the western US in our time period of interest: \n {scales::comma(nrow(weltyInterestWFSub1000))} fires in the Welty dataset ({scales::comma(round(sum(weltyInterestWFSub1000$GIS_Hectar)))} total ha) \n {scales::comma(nrow(firedInterestSub1000))} in the FIRED dataset ({scales::comma(round(sum(firedInterestSub1000$tot_ar_ha)))} total ha)")
 
-glue::glue("Rx burns less than 1,000 acres in the western US in our time period of interest: \n {scales::comma(nrow(dplyr::filter(nfporsInterest, SizeCategory == 'Small')))} fires in the NFPORS dataset \n ({scales::comma(round(sum(dplyr::filter(nfporsInterest, SizeCategory == 'Small')$)))} total ha)")
+glue::glue("Rx burns less than 1,000 acres in the western US in our time period of interest: \n {scales::comma(nrow(dplyr::filter(nfporsInterest, SizeCategory == 'Small')))} fires in the NFPORS dataset \n ({scales::comma(round(sum(dplyr::filter(nfporsInterest, SizeCategory == 'Small'))))} total ha)")
 
 ```
 
