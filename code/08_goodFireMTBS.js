@@ -1,25 +1,21 @@
-// This script inputs a list of MTBS polygons and calculates low/mod vs. high severity fire for forested pixels. Severity (CBI) is derived from Parks et al.2019 method.
-// https://code.earthengine.google.com/?scriptPath=users%2Frudplatt%2FGoodFire%3AgoodFireMTBS
-
-// A few notes:
-// • The perFireExport task runs the task and reducers for every single polygon individually, and then exports a summary CSV for each event.  This approach runs into memory limitations if you are working with a large number of complex polygons. In that case, you need to either (1) increase the scale, or (2) divide the input polygons into smaller chunks, run the process for each chunk, and combine the CSVs at the end.
-// • The CBIMTBS task runs the task and reducers simultaneously for all features in a featureCollection.  The output is an image rather than a CSV.  To get per-event outputs in a CSV, you need another step: run a spatial reducer of the single image using the featureCollection.  This is much more memory efficient than the perFIreExport task.  The down side: does not deal with overlapping polygons. To work around this, you can run the task for shorter time spans (e.g. fires within single calendar years don’t overlap much).  Then run the spatial reducer for each year-image.  
-
+// This script inputs fire perimeters polygons and calculates low/mod vs. high severity fire for forested pixels. Severity (CBI) is derived from Parks et al.2019 method.
+// https://code.earthengine.google.com/?scriptPath=users%2Frudplatt%2FGoodFire%3AgoodFireFinal
 
 var MTBS = ee.FeatureCollection("USFS/GTAC/MTBS/burned_area_boundaries/v1"),
     cbiViz = {"opacity":1,"bands":["CBI_bc"],"min":0,"max":3,"palette":["ff3925","4eff74"]},
     states = ee.FeatureCollection("TIGER/2016/States"),
-    sevMosaic = ee.ImageCollection("USFS/GTAC/MTBS/annual_burn_severity_mosaics/v1"),
     frg = ee.ImageCollection("LANDFIRE/Fire/FRG/v1_2_0"),
     lcms = ee.ImageCollection("USFS/GTAC/LCMS/v2022-8"),
     forVis = {"opacity":1,"bands":["Land_Cover"],"palette":["09a91d"]},
-    chunks = ee.FeatureCollection("projects/ee-rudplatt-test/assets/fires2010_2021_er3"),
     cbiExpVis = {"opacity":1,"bands":["CBImask_max"],"min":-0.22400744889387214,"max":2.834613509499932,"palette":["48ff0c","ff3110"]},
-    cbiRcsVis = {"opacity":1,"bands":["constant"],"min":1,"palette":["2b27ff","fcff1f","ff1818"]};
+    cbiRcsVis = {"opacity":1,"bands":["constant"],"min":1,"palette":["2b27ff","fcff1f","ff1818"]},
+    geometry = /* color: #d63000 */ee.Geometry.Point([-105.45369410297145, 40.04125001035063]),
+    gfVis = {"opacity":1,"bands":["constant"],"palette":["39af08"]};
 
 //----------- Settings for the analysis ------------------//
-var studyArea = states.filter(ee.Filter.inList('NAME',['Washington','Oregon','California','Idaho','Montana','Nevada','Utah','Colorado','Wyoming']))
-//var studyArea = states.filter(ee.Filter.inList('NAME',['New Mexico','Arizona']))
+var studyArea = states.filter(ee.Filter.inList('NAME',['Colorado']))
+//var studyArea = states.filter(ee.Filter.inList('NAME',['Washington','Oregon','California','Idaho','Montana','Nevada','Utah','Colorado','Wyoming']))
+//var studyArea = states.filter(ee.Filter.inList('NAME',['New Mexico','Arizona'])) // these states have different growing seasons per Parks et al. 2019
 var fires = MTBS.filter(ee.Filter.bounds(studyArea)).filter(ee.Filter.notEquals('Incid_Type','Prescribed Fire'))
 
 // add the year as a property
@@ -28,8 +24,8 @@ var fires = fires.map(function(boundary) {
   return boundary.set({year: yr}).copyProperties(boundary)
 });
 
-// filter by year if needed
-var fires = fires.filter(ee.Filter.eq('year','2021'))
+// Filter by year
+var fires = fires.filter(ee.Filter.eq('year','2010'))
 
 // other settings
 var TS = 16 // set tilescale for reduceRegion, output will take longer when higher
@@ -41,7 +37,13 @@ var endday = ee.Number(258) // end of growing season (julian day)
 
 print(fires,'fires')
 
-//-----------  Calculate indices for combined Landsat ImageCollection ------------------//
+// Reclass FRC data to low/mixed (1) vs. replacement (2) vs. masked (3)
+var frcCONUS = frg.filterMetadata('system:index','contains','CONUS').first()
+var frcRcl = frcCONUS.remap([1,2,3,4,5,111,112,131,132,133],[1,2,1,2,2,3,3,3,3,3],0,'FRG').rename('frcRcls');
+var frcLowMix = frcRcl.eq(1).rename('frcLowMix').selfMask()
+var frcReplace = frcRcl.eq(2).rename('frcReplace').selfMask()
+
+//-----------  Code from Parks et al. 2019 Calculate indices for combined Landsat ImageCollection ------------------//
 // Bands for the random forest classification
 var rf_bands = ['def', 'lat',  'rbr', 'dmirbi', 'dndvi', 'post_mirbi'];
 
@@ -323,24 +325,21 @@ var indices = ee.ImageCollection(fires.map(function(ft){
   // find no data areas
   var noData = CBIbc.gte(0).selfMask().rename('noData')
 
-  // Reclass FRC data to low/mixed (1) vs. replacement (2) vs. masked (3)
-  var frcCONUS = frg.filterMetadata('system:index','contains','CONUS').first()
-  var frcRcl = frcCONUS.remap([1,2,3,4,5,111,112,131,132,133],[1,2,1,2,2,3,3,3,3,3],0,'FRG').rename('frcRcls');
-  var frcLowMix = frcRcl.eq(1).rename('frcLowMix')
-  var frcReplace = frcRcl.eq(2).rename('frcReplace')
-
   // Find 1 year before the fire
   var preFireYear = fireYear.advance(-1, 'year');  
 
-  // Get forest cover info for the year before the fire
+  // Get forest cover info for the year before the fire, lcms and lcmap
   var lcmsFire = lcms
     .filter(ee.Filter.and(
       ee.Filter.date(preFireYear, fireYear),
       ee.Filter.eq('study_area', 'CONUS')
     ))
     .first().select('Land_Cover');
+  var lcpri = ee.ImageCollection("projects/sat-io/open-datasets/LCMAP/LCPRI");
+  var lcpriFor = lcpri.filterDate(preFireYear,fireYear).first().eq(4)
   var lcmsFireRcl = lcmsFire.remap([1,4,8,10,3,7,5,9,11,12,13,14,15],[1,2,2,2,2,2,3,3,3,4,4,4,5],0,'Land_Cover').rename('Land_Cover');
   var lcmsFor = lcmsFireRcl.eq(1).rename('lcmsFor')
+  var lcmsFor = ee.Image(lcmsFor.and(lcpriFor)) // must be 'forest' in both lcms and lcmap
 
   // Define fire thresholds and mask by forest year before fire
   var CBImask = CBIbc.updateMask(lcmsFor).rename('CBImask')
@@ -355,7 +354,8 @@ var indices = ee.ImageCollection(fires.map(function(ft){
   var frcReplaceCbiLow = CBIlowmod.updateMask(frcReplace).rename('frcReplaceCbiLow')
   var frcLowCbiUnb = CBIunburned.updateMask(frcLowMix).rename('frcLowCbiUnb')
   var frcReplaceCbiUnb = CBIunburned.updateMask(frcReplace).rename('frcReplaceCbiUnb')
-
+  
+  // Create multiband image with area of CBI classes
   var burnIndices13 = burnIndices12
     .addBands(CBImask)
     .addBands(CBIunburned.multiply(ee.Image.pixelArea()))
@@ -408,36 +408,34 @@ function perimSummary(fireperim) {
       tileScale: TS
   })
 
-  // add properties to the featurecollection for later export
-
+  // add properties to the featurecollection for later export (units: hecatres)
   fireperim = fireperim.set('CBIhighsev', ee.Number(summary.get('CBIhighsev_sum')).multiply(0.001).round().divide(10)) 
   fireperim = fireperim.set('CBIunburned', ee.Number(summary.get('CBIunburned_sum')).multiply(0.001).round().divide(10))
   fireperim = fireperim.set('CBIlowmodsev', ee.Number(summary.get('CBIlowmod_sum')).multiply(0.001).round().divide(10))
-  
   fireperim = fireperim.set('frcLowCbiLow', ee.Number(summary.get('frcLowCbiLow_sum')).multiply(0.001).round().divide(10))
   fireperim = fireperim.set('frcReplaceCbiHigh', ee.Number(summary.get('frcReplaceCbiHigh_sum')).multiply(0.001).round().divide(10))
   fireperim = fireperim.set('frcLowCbiHigh', ee.Number(summary.get('frcLowCbiHigh_sum')).multiply(0.001).round().divide(10))
   fireperim = fireperim.set('frcReplaceCbiLow', ee.Number(summary.get('frcReplaceCbiLow_sum')).multiply(0.001).round().divide(10))
-
   fireperim = fireperim.set('frcLowCbiUnb', ee.Number(summary.get('frcLowCbiUnb_sum')).multiply(0.001).round().divide(10))
   fireperim = fireperim.set('frcReplaceCbiUnb', ee.Number(summary.get('frcReplaceCbiUnb_sum')).multiply(0.001).round().divide(10))
-
   fireperim = fireperim.set('preFireFor', ee.Number(summary.get('lcmsFor_sum')).multiply(0.001).round().divide(10)) 
   fireperim = fireperim.set('areaHA', ee.Number(summary.get('areaHA_sum')).multiply(0.001).round().divide(10)) 
 
   return fireperim
 }
 
-// ---------------------- Compute, visualize, export ----------------------//
 var firesummary = fires.map(perimSummary);
 
-// get LCMS forest layer just for visualization
-var lcms2021 = lcms.filterDate('2020', '2021')  // range: [1985, 2022]
-               .filter('study_area == "CONUS"')  // or "SEAK"
-               .first()
-               .select('Land_Cover')
-               .eq(1)
+// Create CBI and severity class images for visualization and export
+var cbiExport = indices.select('CBImask').reduce(ee.Reducer.max()).selfMask() //flatten
 
+var sevReclass = ee.Image(0)
+    .where(cbiExport.lt(0.1), 1) //unburned
+    .where(cbiExport.gte(0.1).and(cbiExport.lt(2.25)), 2) //low and mod
+    .where(cbiExport.gte(2.25), 3) // high severity
+    .selfMask()
+
+// ---------------------- visualize, export ----------------------//
 var sevVis = {
   bands: ['Severity'],
   min: 0,
@@ -446,27 +444,19 @@ var sevVis = {
       ['000000', '006400', '7fffd4', 'ffff00', 'ff0000', '7fff00', 'ffffff']
 };
 
-Map.addLayer(sevMosaic, sevVis, 'Severity', false);
+var gfLow = sevReclass.eq(2).and(frcLowMix.eq(1)).selfMask()
+var gfHigh = sevReclass.eq(3).and(frcReplace.eq(1)).selfMask()
+
+Map.centerObject(geometry, 12);
+
+Map.addLayer(frcLowMix,{min:0, max:1, palette:['yellow','orange']},'FRG Low Mixed Severity')
 Map.addLayer(fires, {color: 'gray', fillColor: '00000000'}, "Fire perimeters");
-//Map.addLayer(indices.select('frcLowCbiLow').first().gt(0).selfMask(),{min:0, max:1, palette:['yellow','orange']}, 'Good Fire, FRG low/mixed',false);
-//Map.addLayer(indices.select('CBIlowmod').first().gt(0).selfMask(),{min:0, max:1, palette:['yellow','orange']}, 'Good Fire, all FRG');
-//Map.addLayer(indices.select('CBIhighsev').first().gt(0).selfMask(),{min:0, max:1, palette:['yellow','red']}, 'High Severity Fire, all FRG');
-//Map.addLayer(lcms2021.selfMask(),forVis,'LCMS Forest 2021',false)
-//Map.addLayer(indices.first().select('CBI_bc'),cbiViz,"CBI",false)
-//Map.addLayer(indices.select('frcLowMix').first().gt(0).selfMask(),{min:0, max:1, palette:['yellow','red']}, 'FRC Low Mixed', false);
+Map.addLayer(sevReclass,cbiRcsVis,"CBI Severity Class")
+Map.addLayer(gfLow,gfVis,'Low Good Fire',false)
+Map.addLayer(gfHigh,gfVis,'High Good Fire',false)
 
-// Create CBI and severity class images for visualization and export
-var cbiExport = indices.select('CBImask').reduce(ee.Reducer.max()).selfMask()
 
-var sevReclass = ee.Image(0)
-    .where(cbiExport.lt(0.1), 1) //unburned
-    .where(cbiExport.gte(0.1).and(cbiExport.lt(2.25)), 2) //low and mod
-    .where(cbiExport.gte(2.25), 3) // high severity
-    .selfMask()
-
-Map.addLayer(cbiExport,cbiExpVis,"CBI Export")
-Map.addLayer(sevReclass,cbiRcsVis,"Sev reclass")
-
+// Export flattened CBI image
 Export.image.toAsset({
   image: cbiExport,
   description: 'cbiMTBS_',
@@ -474,6 +464,7 @@ Export.image.toAsset({
   maxPixels: 3784216672400
 });
 
+// Export flattened CBI classification
 Export.image.toAsset({
   image: sevReclass,
   description: 'sevClassExport_',
@@ -481,8 +472,8 @@ Export.image.toAsset({
   maxPixels: 3784216672400
 });
 
-// Export the FeatureCollection
-var exported = firesummary.select(['.*'], null, false)//.sort('pct_refugia',false); // sort pct_refugia ascending to ensure that all columns are exported
+// Export the summaries for individual fires (note: best to run for individual years to prevent overlap)
+var exported = firesummary.select(['.*'], null, false)
 Export.table.toDrive({
   collection: exported,
   description: 'perFireExport_',
