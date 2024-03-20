@@ -71,9 +71,9 @@ rxDatCompare <- read_csv(here::here(derivedDatDir, "rx_dataset_comparison_long_v
 nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee.csv"))
 
 #From script 03 - all 3 sheets of data
-fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Full Data")
-yearSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Year Summary")
-stateSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "State Summary")
+fullDataMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "MTBS Fire Events")
+yearSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "Year MTBS Summary")
+stateSummaryMTBS <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1cGDeCfF6Gzkf9P4SRHDfqPmZfwyX438jURyzrL49IGk/edit?pli=1#gid=0", sheet = "State MTBS Summary")
 
 
 

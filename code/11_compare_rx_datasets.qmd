@@ -1,0 +1,161 @@
+
+# Setup
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+## Libraries ----
+
+#Check the required libraries and download if needed
+list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
+                      "terra",
+                      "sf",
+                      "mapview",
+                      "here",
+                      "future", "future.apply", "furrr", "doFuture", "progressr", #Futureverse!
+                      "tictoc", 
+                      "mblm", #Median-based linear models (i.e. thiel-sen)
+                      "plyr",
+                      "scales", #add commas to ggplot axis
+                      "tigris", #US data
+                      "scales") #add commas to axis
+
+#Install all packages that aren't installed yet
+install.packages(setdiff(list.of.packages, rownames(installed.packages())))
+
+#Load all packages
+invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisible' to prevent output being displayed
+
+## Clean workspace & set up environment ----
+rm(list=ls()) #Ensure empty workspace if running from beginning
+here::i_am("code/02_a_number_on_prescribed_burns_data.Rmd")
+here::here() #Check here location
+#OR
+#setwd() #Set working directory directly
+options(digits = 6) #Set standard decimal print output
+options(scipen = 999) #Turn scientific notation on and off (0 = on, 999 = off)
+
+#Ensure necessary directories are created
+derivedDatDir <- here::here("data", "derived")
+if (!dir.exists(derivedDatDir)){
+  dir.create(derivedDatDir)
+}
+
+```
+
+# Import US data
+
+```{r}
+
+#Get shapefiles for the US
+# Fetch all US states
+usa <- tigris::states() %>%
+  st_transform(st_crs(4269))
+
+# Filter for contiguous states (excluding Alaska and Hawaii)
+conus <- usa[usa$STUSPS %in% c("WA", "ID", "MT", "ND", "MN", "MI", "ME", "WI", "VT", "NH", "NY", "SD", "WY", "OR", "IA", "NE", "IL", "NV", "UT", "CO", "KS", "OK", "NM", "AZ", "AR", "MO", "MS", "AL", "GA", "SC", "NC", "TN", "KY", "IN", "OH", "WV", "VA", "PA", "MD", "DE", "NJ", "CT", "RI", "MA", "CT", "CA", "TX", "FL", "LA"),]
+
+
+westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+west <- usa[usa$STUSPS %in% westAbbrList,]
+
+
+
+```
+
+# Import prescribed fire datasets (three different ones)
+
+```{r}
+#load nfpors
+nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', 'NFPORS_WestStates_2010_2021.gdb'),
+                      layer = "West_NFPORS_2010_2021")|>
+  dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
+
+#load facts
+facts <- sf::st_read(here::here('data', 'raw', 'S_USA.Activity_HazFuelTrt_PL.gdb', 'S_USA.Activity_HazFuelTrt_PL.gdb'),
+                      layer = "Activity_HazFuelTrt_PL")
+
+#load welty
+welty <- sf::st_read(here::here('data', 'raw', 'welty_combined_wildland_fire_dataset', 'welty_combined_wildland_fire_perimeters.shp'))
+
+
+```
+
+# Explore nfpors
+
+```{r, eval = FALSE}
+
+head(nfpors)
+unique(nfpors$KEYPOINTNAME)
+unique(nfpors$STATENAME) #state filter has been done correctly
+unique(nfpors$TYPENAME) #includes Machine Pile Burn, Broadcast Burn, Fire Use, Jackpot Burn, and Hand Pile Burn
+unique(nfpors$ACTUALCOMPLETIONYEARNEW) #ensure dates are right
+unique(nfpors$UNITOFMEAS)
+unique(nfpors$WUIID)
+
+#mapview(nfpors) #this is point data!
+
+```
+
+
+# Manipulate NFPORS data
+
+```{r}
+
+unique(nfpors$actualcompletionyear)
+unique(year(as.Date(nfpors$ACTUALCOMPLETIONDATE)))
+#actualcompletionyear has a few errors; make new one from the good data
+nfpors <- nfpors |>
+  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(ACTUALCOMPLETIONDATE)),
+                hectares = TOTALACCOMPLISHMENT * 0.404686)
+
+
+```
+# Explore facts, filter, manipulate
+
+```{r, include = FALSE}
+head(facts)
+unique(facts$METHOD)
+unique(facts$TREATMENT_TYPE)
+
+yearsOfInterest = seq(2010,2021)
+
+#Get only prescribed burning activities in the western US in the years we have NFPORS data
+westPBFacts <- facts %>%
+  dplyr::mutate(ACTUALCOMPLETIONYEARNEW = year(as.Date(DATE_COMPLETED))) |>
+  dplyr::filter(STATE_ABBR %in% westAbbrList) |>
+  dplyr::filter(TREATMENT_TYPE %in% c("Machine Pile Burn", "Jackpot Burn", "Fire Use", "Broadcast Burn", "Hand Pile Burn")) |>
+  dplyr::filter(ACTUALCOMPLETIONYEARNEW %in% yearsOfInterest) |>
+  dplyr::mutate(GIS_Hectares = GIS_ACRES * 0.404686)
+
+unique(westPBFacts$ACTUALCOMPLETIONYEARNEW)
+
+```
+
+# Prep welty to compare rx
+
+```{r}
+weltyRx <- welty |>
+  dplyr::filter(Fire_Year >= 2010 & Fire_Year <= 2021) |>
+  sf::st_filter(sf::st_transform(west, sf::st_crs(welty))) |>
+  dplyr::filter(Assigned_F == "Prescribed Fire" | Assigned_F == "Unknown - Likely Prescribed Fire")
+
+```
+
+# Compare RX datasets of interest
+
+```{r}
+
+glue::glue("Number of rx burn events in NFPORS: {nrow(nfpors)} (11 western states, 2010-2021)")
+glue::glue("Number of rx burn events in raw FACTS: {nrow(westPBFacts)} (11 western states, 2010-2021)")
+glue::glue("Number of rx burn events in Welty: {nrow(weltyRx)} (11 western states, 2010-2021)")
+
+glue::glue("Total rx burn ha in NFPORS: {scales::comma(sum(nfpors$hectares))} ha (11 western states, 2010-2021)")
+glue::glue("Total rx burn ha in raw FACTS: {scales::comma(sum(westPBFacts$GIS_Hectares, na.rm = TRUE))} ha (11 western states, 2010-2021)")
+glue::glue("Total rx burn ha in Welty: {scales::comma(sum(weltyRx$GIS_Hectar))} ha (11 western states, 2010-2021)")
+
+
+print("Note that we are including multiple different types of rx burning in this analysis, and that CBI likely wouldn't accurately capture the impacts of treatments like pile burning")
+
+
+
+```
+

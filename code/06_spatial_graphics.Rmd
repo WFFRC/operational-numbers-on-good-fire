@@ -51,7 +51,7 @@ figsDir <- here::here("figs")
 if (!dir.exists(figsDir)){
   dir.create(figsDir)
 }
-figsDir <- here::here("figs/lcms_only")
+figsDir <- here::here("figs/both_lcms_lcmap")
 if (!dir.exists(figsDir)){
   dir.create(figsDir)
 }
@@ -83,7 +83,7 @@ weltySmallPerims <- sf::st_read(here::here('data', 'derived', 'welty_jeffries_we
   sf::st_transform(sf::st_crs(mtbsPerims)) #reproject to match MTBS
 
 #NFPORS rx data from GEE
-nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee.csv"))
+nfporsWithGee <- read_csv(here::here(derivedDatDir, "nfpors_with_gee_lcms_lcmap.csv"))
 
 #Raw NFPORS location data
 nfpors <- sf::st_read(here::here("data", "raw", "West_NFPORS_2010_2021", "West_NFPORS_2010_2021.shp")) |>
@@ -119,7 +119,7 @@ mtbsPointsInterest <- mtbsPerimsInterest |>
 weltyInterest <- weltySmallPerims |>
   dplyr::filter(OBJECTID %in% fullDataSmall$OBJECTID) |>
   dplyr::left_join(fullDataSmall, by = c("OBJECTID")) |>
-  dplyr::mutate(goodPercAll = round(100 * (frcLowCbiLow / GIS_Hectar.y)))
+  dplyr::mutate(goodPercAll = round(100 * (frcLowCbiLowHA / GIS_Hectar.y)))
 
 #Get perimeter centroids to use as points
 sf_use_s2(FALSE) #Polygon invalidity not fixed by st_make_valid, turn spherical geometry on and off to get centroids
@@ -131,14 +131,42 @@ sf_use_s2(TRUE)
 ```
 
 #Merge MTBS & Welty data
+Points, perimeters, and forest-filtered perimeters
 
 ```{r}
 
 goodFirePoints <- rbind(
   (mtbsPointsInterest |> dplyr::select(frcLowCbiLow)),
   (weltyPointsInterest |>
-     dplyr::select(frcLowCbiLow) |>
-     dplyr::rename("geometry" = "geom"))
+     dplyr::select(frcLowCbiLowHA) |> #make sure to use HA column
+     dplyr::rename("geometry" = "geom",
+                   "frcLowCbiLow" = "frcLowCbiLowHA"))
+)
+
+
+goodFirePerims <- rbind(
+  (mtbsPerimsInterest |> dplyr::select(frcLowCbiLow, goodPercAll)),
+  (weltyInterest |>
+     dplyr::select(frcLowCbiLowHA, goodPercAll) |>
+     dplyr::rename("geometry" = "geom",
+                   "frcLowCbiLow" = "frcLowCbiLowHA"))
+)
+
+
+goodFirePerimsForestOnly <- rbind( #good fire perimeters filtered to only include those with >10% forest pre-burn
+  (mtbsPerimsInterest |>
+     dplyr::mutate(percPreFor = (preFireFor / areaHA) * 100) |>
+     dplyr::filter(percPreFor >= 10) |>
+     dplyr::mutate(goodPercBurnedFor = frcLowCbiLow / (CBIhighsev + CBIlowmodsev) * 100) |>
+     dplyr::select(frcLowCbiLow, goodPercAll, goodPercBurnedFor, areaHA)),
+  (weltyInterest |>
+     dplyr::mutate(percPreFor = (preFireFor / GIS_Hectar.y) * 100) |>
+     dplyr::filter(percPreFor >= 10) |>
+      dplyr::mutate(goodPercBurnedFor = frcLowCbiLowHA / (CBIlowmodsevHA + CBIhighsevHA) * 100) |>
+     dplyr::select(frcLowCbiLowHA, goodPercAll, goodPercBurnedFor, GIS_Hectar.y) |>
+     dplyr::rename("geometry" = "geom",
+                   "frcLowCbiLow" = "frcLowCbiLowHA",
+                   "areaHA" = "GIS_Hectar.y"))
 )
 
 ```
@@ -147,10 +175,11 @@ goodFirePoints <- rbind(
 
 ```{r}
 
-#Join the NFPORS GEE data back to the original points
+#Join the NFPORS GEE data back to the original points & filter
 nfporsInterest <- nfpors |>
   dplyr::left_join(nfporsWithGee, by = c("PointId" = "objectid__")) |>
-  dplyr::filter(FRGDescription == "frcLowMix")
+  dplyr::filter(FRGDescription == "frcLowMix"& ACTUALCOMPLETIONYEARNEW < 2021) |>
+  dplyr::filter(LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4)
 
 ```
 
@@ -162,113 +191,393 @@ usa <- tigris::states() |>
   sf::st_transform(sf::st_crs(mtbsPerims))
 west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),]  
 ```
+# Create histogram
+
+```{r}
+
+
+create.event.summary.plots <- function(eventDats, nm) {
+  ggplot() +
+  ggplot2::geom_histogram(data = eventDats, aes(x=goodPercBurnedFor), fill = "#dc0ab4ff", bins = 50) +
+  ggplot2::labs(x = "Percentage of forest burned in good fire", y = "Count") +
+  ggplot2::theme_minimal() +
+  scale_y_reverse() +
+  coord_flip()
+  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('event_summary_hist_{nm}.png')), units = "in", width = 3, height = 3, bg = "white")
+  
+ggplot() +
+  ggplot2::geom_point(data = eventDats, aes(x = areaHA, y = goodPercBurnedFor), color = "#dc0ab4ff", alpha = 0.5, stroke = NA) +
+  ggplot2::labs(x = "Area", y = "Percentage of forest burned in good fire") +
+  ggplot2::theme_minimal()
+  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('event_summary_point_{nm}.png')), units = "in", width = 3, height = 3)
+}
+
+largeGoodFirePerimsForestOnly <- goodFirePerimsForestOnly |> dplyr::filter(areaHA > 1000)
+
+
+create.event.summary.plots(goodFirePerimsForestOnly, "allFires")
+create.event.summary.plots(largeGoodFirePerimsForestOnly, "largeFires")
+
+
+
+```
+
 
 
 # Create spatial map
 
 ```{r spatial-map}
-goodFCol = "goldenrod2"
-rxCol = "seagreen"
-transparency = 0.6
-strk = 0.3
-rngMax = 5
 
-#Create plot with both on one
-ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top)") +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
-                                 name = "Hectares",
-                                 range = c(0, rngMax)) +
-  theme_bw()
-ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1.png'), units = "in", width = 7)
+# Create a leaflet map to get accurate (geographically meaningful) size of NFPORS points
+# Since leaflet does not export easily for static graphics, the information from this has been visually used
+# to adjust the GGPLOT2 final outputs
+goodFCol = "#dc0ab4ff"
+lowGoodFCol = "gray50"
+gfBCol = "transparent"
+rxCol = "goldenrod1"
+rxBCol = "transparent"
+transparency = 0.75
+strk = 0
+rngMin = 0.1
+rngMax = 7
+pch = 21
 
-ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-    ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::labs(title = "Good fire & Rx Burns in the Western US (fire on top)") +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
-                                 name = "Hectares",
-                                 range = c(0, rngMax)) +
-  theme_bw()
-ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1v2.png'), units = "in", width = 7)
+library(leaflet)
+nfporsInterest2 <- nfporsInterest |>
+  dplyr::mutate(area_m2 = TOTALACCOMPLISHMENT_HA * 10000) |> # 1 hectare = 10,000 square meters
+  dplyr::mutate(radius = sqrt(area_m2 / pi)) %>%
+  cbind(sf::st_coordinates(.)) |>
+  dplyr::rename(lat = Y, long = X)
 
+m <- leaflet::leaflet() %>%
+  leaflet::addPolygons(data = west, fillOpacity = 0.8, fillColor = "white", color = "#444444") %>%
+  leaflet::addPolygons(data = goodFirePerimsForestOnly, fillColor = goodFCol, fillOpacity = 0.8, color = NA) %>%
+  leaflet::addCircles(data = nfporsInterest2, lng = ~long, lat = ~lat, radius = ~radius, fillColor = rxCol, color = rxBCol, opacity = transparency, weight = strk, fillOpacity = transparency)
 
-#Create plot with two separate
-goodFirePlot <- ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
-                                 name = "Good Fire\nHa",
-                                 range = c(0, rngMax)) +
-  theme_bw()
-
-rxFirePlot <- ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
-                                 name = "Rx Ha",
-                                 range = c(0, rngMax)) +
-  theme_bw()
-
-combinedPlot <- gridExtra::arrangeGrob(goodFirePlot, rxFirePlot, ncol = 2, top = "Good Fire & Rx in the Western US")
-ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'spatial_plot_2.png'), units = "in", width = 10)
-
-
+# Display the map
+m
 ```
 
-# Create spatial map version 2 (i.e. using actual perimeters)
-```{r spatial-map-v2}
-#darkorchid3
+```{r}
+#Function and call to make figure
 
-goodFirePerims <- rbind(
-  (mtbsPerimsInterest |> dplyr::select(frcLowCbiLow, goodPercAll)),
-  (weltyInterest |>
-     dplyr::select(frcLowCbiLow, goodPercAll) |>
-     dplyr::rename("geometry" = "geom"))
+create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transparency, strk, rngMin, rngMax, pch, bgfill, statecol) {
+  
+  tm <- Sys.time() |>
+    gsub(pattern = " ", replacement = "_") |>
+    gsub(pattern = ":", replacement = "") |>
+    gsub(pattern = ".", replacement = "", fixed = TRUE)
+  
+  #Create perims + bubbles plot
+  ggplot2::ggplot() +
+    ggplot2::geom_sf(data = west, aes(), fill = bgfill, color = statecol) +
+    #ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+    ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercBurnedFor), color = NA) + #use percentage of only burned forest within perimeter
+    ggplot2::scale_fill_gradient(low = lowGoodFCol, high = goodFCol, limits = c(0, 100)) +
+    ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxBCol, pch = pch, alpha = transparency, stroke = strk) +
+    #ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+    ggplot2::labs(
+      #title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn",
+      fill = "Percentage of \nforest within \nperimeter \nburned by \ngood fire")  +
+    theme_void() +
+    theme(plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          legend.spacing.y = ggplot2::unit(0.6, 'cm'),
+          text = element_text(family = "Arial", size = 12, lineheight = 1.15)) +
+    ggplot2::scale_size_continuous(
+      labels = scales::label_comma(),
+      limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+      name = "Prescribed \nburn \nhectares",
+      range = c(rngMin, rngMax))
+  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_forestPerims_rxBubbles_{tm}.png')), units = "in", width = 7)
+  
+}
+
+
+create.plots(
+  goodFCol = "#dc0ab4ff",
+  lowGoodFCol = "goldenrod2",
+  gfBCol = "transparent",
+  rxCol = "darkblue",
+  rxBCol = "transparent",
+  transparency = 1,
+  strk = 0,
+  rngMin = 0.1,
+  rngMax = 2.65, #tested until visual comparison of bubbles to that from leaflet is as similar as possible
+  pch = 21,
+  bgfill = "gray95",
+  statecol = "gray50"
 )
 
-#Create graphic
-ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
-  ggplot2::scale_fill_gradient(low = "gray", high = "#dc0ab4ff", limits = c(0, 100)) +
-  ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
-  theme_bw()
-ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_perims.png'), units = "in", width = 7)
-
-ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
-  ggplot2::scale_fill_gradient(low = "gray", high = "#dc0ab4ff", limits = c(0, 100)) +
-  ggplot2::labs(title = "Good fire in the Western US (perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
-  theme_bw()
-ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_only_perims.png'), units = "in", width = 7)
-
-
-
-#Create plot with two separate
-goodFirePlot2 <- ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
-  ggplot2::scale_fill_gradient(low = "gray", high = "#dc0ab4ff", limits = c(0, 100)) +
-  theme_bw()
-
-rxFirePlot2 <- ggplot2::ggplot() +
-  ggplot2::geom_sf(data = west, aes(), fill = "white") +
-  ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
-  theme_bw()
-
-combinedPlot <- gridExtra::arrangeGrob(goodFirePlot2, rxFirePlot2, ncol = 2, top = "Good Fire & Rx in the Western US")
-ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'spatial_plot_2_perims.png'), units = "in", width = 10)
+# Function to get a hex color from R color
+# PARAMETERS
+# color : a standard R color (e.g. 'red' or 'steelblue')
+col2hex <- function(color) {
+  rgb_values <- col2rgb(color)
+  hex_color <- rgb(rgb_values[1], rgb_values[2], rgb_values[3], maxColorValue=255)
+  return(hex_color)
+}
+col2hex("goldenrod2")
+col2hex("darkblue")
+col2hex("gray95")
+col2hex("gray50")
 
 
 
 ```
 
+# OLD FIGURES
 
+```{r}
+# ####################################################################################
+# #FIRST SET
+# 
+# #goodFCol = "goldenrod2"
+# goodFCol = "#dc0ab4ff"
+# #rxCol = "seagreen"
+# rxCol = "goldenrod2"
+# transparency = 0.6
+# strk = 0.3
+# rngMax = 5
+# 
+# #Create plot with both on one
+# #rx on top
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Area burned in 'good fire' and prescribed fire events \n in the Western US (rx on top)") +
+#   ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#                                  name = "Hectares",
+#                                  range = c(0, rngMax)) +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1.png'), units = "in", width = 7)
+# 
+# #rx on top v2 - make everything even smaller by forcing plot to larger width/height
+# rngMax = 3
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Area burned in 'good fire' and prescribed fire events \n in the Western US (rx on top)") +
+#   ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#                                  name = "Hectares",
+#                                  range = c(0, rngMax)) +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_1v2.png'), units = "in", width = 7)
+# 
+# #gf on top
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#     ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (fire on top)") +
+#   ggplot2::scale_size_continuous(
+#     limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#     name = "Hectares",
+#     range = c(0, rngMax)) +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_2.png'), units = "in", width = 7)
+# 
+# 
+# #Create plot with two separate
+# goodFirePlot <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = goodFCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#                                  name = "Good Fire\nHa",
+#                                  range = c(0, rngMax)) +
+#   theme_bw()
+# 
+# rxFirePlot <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#                                  name = "Rx Ha",
+#                                  range = c(0, rngMax)) +
+#   theme_bw()
+# 
+# combinedPlot <- gridExtra::arrangeGrob(goodFirePlot, rxFirePlot, ncol = 2, top = "Good Fire & Rx in the Western US")
+# ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'spatial_plot_3.png'), units = "in", width = 10)
+# 
+# 
+# ########################################################################################
+# # PERIMETER SET
+# 
+# #darkorchid3
+# goodFCol = "#dc0ab4ff"
+# 
+# goodFirePerims <- rbind(
+#   (mtbsPerimsInterest |> dplyr::select(frcLowCbiLow, goodPercAll)),
+#   (weltyInterest |>
+#      dplyr::select(frcLowCbiLowHA, goodPercAll) |>
+#      dplyr::rename("geometry" = "geom",
+#                    "frcLowCbiLow" = "frcLowCbiLowHA"))
+# )
+# 
+# 
+# goodFirePerimsForestOnly <- rbind( #good fire perimeters filtered to only include those with >10% forest pre-burn
+#   (mtbsPerimsInterest |>
+#      dplyr::mutate(percPreFor = (preFireFor / areaHA) * 100) |>
+#      dplyr::filter(percPreFor >= 10) |>
+#      dplyr::select(frcLowCbiLow, goodPercAll)),
+#   (weltyInterest |>
+#      dplyr::mutate(percPreFor = (preFireFor / GIS_Hectar.y) * 100) |>
+#      dplyr::filter(percPreFor >= 10) |>
+#      dplyr::select(frcLowCbiLowHA, goodPercAll) |>
+#      dplyr::rename("geometry" = "geom",
+#                    "frcLowCbiLow" = "frcLowCbiLowHA"))
+# )
+# 
+# #Create graphic 1
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_perims.png'), units = "in", width = 7)
+# 
+# 
+# #make everything even smaller by forcing plot to larger width/height
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_perims2.png'), units = "in", width = 10, height = 6.5)
+# 
+# 
+# #create graphic 2
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::labs(title = "Good fire in the Western US (perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_only_perims.png'), units = "in", width = 7)
+# 
+# 
+# 
+# #Create plot with two separate
+# goodFirePlot2 <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerims, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   theme_bw()
+# 
+# rxFirePlot2 <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   theme_bw()
+# 
+# combinedPlot <- gridExtra::arrangeGrob(goodFirePlot2, rxFirePlot2, ncol = 2, top = "Good Fire & Rx in the Western US")
+# ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'spatial_plot_2_perims.png'), units = "in", width = 10)
+# 
+# 
+# 
+# 
+# #FOREST ONLY
+# 
+# 
+# #Create graphic 1
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) : >10% forest within perimeters", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_perims_forestOnly.png'), units = "in", width = 7)
+# 
+# #make everything even smaller by forcing plot to larger width/height
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) : >10% forest within perimeters", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_perims2_forestOnly.png'), units = "in", width = 10, height = 6.5)
+# 
+# 
+# #create graphic 2
+# ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   ggplot2::labs(title = "Good fire in the Western US (perimeters)", fill = "Percentage of \ngood forest fire \nwithin perimeter : >10% forest within perimeters")  +
+#   theme_bw()
+# ggplot2::ggsave(filename = here::here(figsDir, 'spatial_plot_only_perims_forestOnly.png'), units = "in", width = 7)
+# 
+# 
+# 
+# #Create plot with two separate
+# goodFirePlot2 <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+#   ggplot2::scale_fill_gradient(low = "gray", high = goodFCol, limits = c(0, 100)) +
+#   theme_bw()
+# 
+# rxFirePlot2 <- ggplot2::ggplot() +
+#   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   ggplot2::geom_sf(data = nfporsInterest, size = 0.0001, fill = rxCol, color = rxCol, pch = 21, alpha = transparency, stroke = strk) +
+#   theme_bw()
+# 
+# combinedPlot <- gridExtra::arrangeGrob(goodFirePlot2, rxFirePlot2, ncol = 2, top = "Good Fire & Rx in the Western US : >10% forest within perimeters")
+# ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'spatial_plot_2_perims_forestOnly.png'), units = "in", width = 10)
+# 
+
+############################################
+# OLD FUNCTION
+# 
+# 
+# create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transparency, strk, rngMin, rngMax, pch, bgfill, statecol) {
+#   
+#   tm <- Sys.time() |>
+#     gsub(pattern = " ", replacement = "_") |>
+#     gsub(pattern = ":", replacement = "") |>
+#     gsub(pattern = ".", replacement = "", fixed = TRUE)
+#   
+#   # #Create bubble plot
+#   # ggplot2::ggplot() +
+#   #   ggplot2::geom_sf(data = west, aes(), fill = "white") +
+#   #   ggplot2::geom_sf(data = goodFirePoints, aes(size = frcLowCbiLow), fill = goodFCol, color = gfBCol, pch = pch, alpha = transparency, stroke = strk) +
+#   #   ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxBCol, pch = pch, alpha = transparency, stroke = strk) +
+#   #   ggplot2::labs(title = "Area burned in 'good fire' and prescribed fire events \n in the Western US (rx on top)") +
+#   #   ggplot2::scale_size_continuous(limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#   #                                  name = "Hectares",
+#   #                                  range = c(rngMin, rngMax)) +
+#   #   theme_bw()
+#   # ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_bubbles_{tm}.png')), units = "in", width = 7)
+#   
+#   #Create perims + bubbles plot
+#   ggplot2::ggplot() +
+#     ggplot2::geom_sf(data = west, aes(), fill = bgfill, color = statecol) +
+#     #ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+#     ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercBurnedFor), color = NA) + #use percentage of only burned forest within perimeter
+#     ggplot2::scale_fill_gradient(low = lowGoodFCol, high = goodFCol, limits = c(0, 100)) +
+#     ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT_HA), fill = rxCol, color = rxBCol, pch = pch, alpha = transparency, stroke = strk) +
+#     #ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+#     ggplot2::labs(
+#       #title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn",
+#       fill = "Percentage of \nforest within \nperimeter \nburned by \ngood fire")  +
+#     theme_void() +
+#     theme(plot.background = element_rect(fill = "white"),
+#           panel.border = element_blank(),
+#           legend.spacing.y = ggplot2::unit(1, 'cm'),
+#           text = element_text(family = "Arial", size = 10, lineheight = 1.2)) +
+#     ggplot2::scale_size_continuous(
+#       labels = scales::label_comma(),
+#       limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
+#       name = "Prescribed \nburn \nhectares",
+#       range = c(rngMin, rngMax))
+#   ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_forestPerims_rxBubbles_{tm}.png')), units = "in", width = 7)
+#   
+# }
+
+```
 
