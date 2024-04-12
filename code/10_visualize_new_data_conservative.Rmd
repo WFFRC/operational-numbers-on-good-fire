@@ -270,8 +270,12 @@ pivot.longer <- function(dat) {
 }
 
 #Use function
-yearAllLong <- yearAll |> pivot.longer()
-stateAllLong <- stateAll |> pivot.longer()
+yearAllLong <- yearAll |>
+  pivot.longer() |>
+  dplyr::mutate(acres = hectares * 2.47105)
+stateAllLong <- stateAll |>
+  pivot.longer() |>
+  dplyr::mutate(acres = hectares * 2.47105)
 allLong <- yearAll |>
   dplyr::summarise(rxBurnHa = sum(rxBurnHa),
                    `Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)` = sum(`Low/Mod Goodfire (CBI Low/mod in FRG low/mod, HA)`),
@@ -282,7 +286,7 @@ allLong <- yearAll |>
                                              datNm == 'rxBurnHa' ~ 'Prescribed \nForest Burns',
                                              datNm == 'burnFor' ~ 'Total Forest Wildfire')) |>
   dplyr::mutate(datNm = factor(datNm, levels = c( "burnFor", "goodFire", "rxBurnHa"))) |>
-  dplyr::mutate(acres = round(hectares * 2.47105))
+  dplyr::mutate(acres = hectares * 2.47105)
 
 ```
 
@@ -307,7 +311,7 @@ plotColors <- c(rxCol, gFCol, totCol)
 plotLabels <- c("Prescribed Burns", "Good Wildfire", "Total Wildfire")
 
 #Year graphic
-yearGraphic <- ggplot2::ggplot(yearAllLong)  +
+yearGraphicHA <- ggplot2::ggplot(yearAllLong)  +
   geom_col(aes(x = year, y = hectares, fill = datNm),
            position = "dodge", show.legend = TRUE) +
   xlab("Year") +
@@ -323,10 +327,31 @@ yearGraphic <- ggplot2::ggplot(yearAllLong)  +
   theme(legend.title = element_blank(), legend.position = "bottom",
         text = element_text(size = 15)) + 
   scale_fill_manual(values = plotColors, labels = plotLabels)
-ggplot2::ggsave(plot = yearGraphic, filename = here::here(figsDir, 'cbi_rx_year_fig_v3.png'), units = "in", width = 8, bg = "white")
+
+
+#Year graphic
+yearGraphicAC <- ggplot2::ggplot(yearAllLong)  +
+  geom_col(aes(x = year, y = acres, fill = datNm),
+           position = "dodge", show.legend = TRUE) +
+  xlab("Year") +
+  ylab("Acres") +
+  labs(title = "Good fire in Western U.S. forests over time (conservative estimate)") +
+  scale_y_continuous(labels=comma,
+                     limits = c(0, 5000000)#,
+                     # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                     #                     name = "Acres",
+                     #                     labels = comma)
+                     ) +
+  theme_light() +
+  theme(legend.title = element_blank(), legend.position = "bottom",
+        text = element_text(size = 15)) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+
+ggplot2::ggsave(plot = yearGraphicHA, filename = here::here(figsDir, 'cbi_rx_year_fig_v3_HA.png'), units = "in", width = 8, bg = "white")
+ggplot2::ggsave(plot = yearGraphicAC, filename = here::here(figsDir, 'cbi_rx_year_fig_v3_AC.png'), units = "in", width = 8, bg = "white")
 
 #State graphic
-stateGraphic <- ggplot2::ggplot(stateAllLong)  +
+stateGraphicHA <- ggplot2::ggplot(stateAllLong)  +
   geom_col(aes(x = STATEABBR, y = hectares, fill = datNm),
             position = "dodge", show.legend = FALSE) +
   xlab("State") +
@@ -342,14 +367,34 @@ stateGraphic <- ggplot2::ggplot(stateAllLong)  +
   theme(legend.title = element_blank(),
         text = element_text(size = 15)) + 
   scale_fill_manual(values = plotColors, labels = plotLabels)
-ggplot2::ggsave(plot = stateGraphic, filename = here::here(figsDir, 'cbi_rx_states_fig_v3.png'), units = "in", width = 8, bg = "white")
+
+stateGraphicAC <- ggplot2::ggplot(stateAllLong)  +
+  geom_col(aes(x = STATEABBR, y = acres, fill = datNm),
+            position = "dodge", show.legend = FALSE) +
+  xlab("State") +
+  ylab("Acres") +
+  labs(title = "Good fire in Western U.S. forests by state (conservative estimate)") +
+  scale_y_continuous(labels=comma,
+                     limits = c(0, 5000000)#,
+                     # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                     #                     name = "Acres",
+                     #                     labels = comma)
+                     ) +
+  theme_light() +
+  theme(legend.title = element_blank(),
+        text = element_text(size = 15)) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels)
+
+ggplot2::ggsave(plot = stateGraphicHA, filename = here::here(figsDir, 'cbi_rx_states_fig_v3_HA.png'), units = "in", width = 8, bg = "white")
+ggplot2::ggsave(plot = stateGraphicAC, filename = here::here(figsDir, 'cbi_rx_states_fig_v3_AC.png'), units = "in", width = 8, bg = "white")
 
 #Overall graphic
 textSz <- 5.5
-  #Needs different parameters since turned sideways
-  plotColors2 <- c(totCol, gFCol, rxCol)
-  plotLabels2 <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
-overallGraphic <- ggplot2::ggplot(allLong)  +
+#Needs different parameters since turned sideways
+plotColors2 <- c(totCol, gFCol, rxCol)
+plotLabels2 <- c("Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+
+overallGraphicHA <- ggplot2::ggplot(allLong)  +
   geom_col(aes(x = datNm, y = hectares, fill = datNm), position = "dodge", show.legend = FALSE) +
   xlab("Year") +
   ylab("Hectares") +
@@ -370,32 +415,58 @@ overallGraphic <- ggplot2::ggplot(allLong)  +
             hjust = 1.2, colour = "white", size = textSz) +
   geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = textSz) +
   coord_flip()
-ggplot2::ggsave(plot = overallGraphic, filename = here::here(figsDir, 'overall_v2.png'), units = "in", width = 6, height = 2.5, bg = "transparent")
 
-```
+overallGraphicAC <- ggplot2::ggplot(allLong)  +
+  geom_col(aes(x = datNm, y = acres, fill = datNm), position = "dodge", show.legend = FALSE) +
+  xlab("Year") +
+  ylab("Acres") +
+  #labs(title = "      2010-2020 Good Fire in Western U.S. Forests (conservative estimate)") +
+  scale_y_continuous(labels=comma) +
+  theme_void() +
+  #theme(plot.title = element_text(hjust = 0.5)) + #make title centered
+  scale_fill_manual(values = plotColors2, labels = plotLabels2) +
+  geom_text(data = allLong |> filter(datNm != "burnFor"),
+            aes(x = datNm, y = acres,
+                #label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")),
+                label = glue::glue("{scales::comma(acres)} acres")),
+            hjust = -0.1, colour = "black", size = textSz) +
+  geom_text(data = allLong |> filter(datNm == "burnFor"),
+            aes(x = datNm, y = acres,
+                #label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")),
+                label = glue::glue("{scales::comma(acres)} acres")),
+            hjust = 1.2, colour = "white", size = textSz) +
+  geom_text(aes(x = datNm, y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = textSz) +
+  coord_flip()
 
-# Combined graphic
 
-```{r}
 
-#Arranging complex grobs: https://cran.r-project.org/web/packages/gridExtra/vignettes/arrangeGrob.html
-lay <- rbind(c(1, NA),
-             c(2,3))
+ggplot2::ggsave(plot = overallGraphicAC, filename = here::here(figsDir, 'overall_v2_AC.png'), units = "in", width = 6, height = 2.5, bg = "transparent")
+ggplot2::ggsave(plot = overallGraphicHA, filename = here::here(figsDir, 'overall_v2_HA.png'), units = "in", width = 6, height = 2.5, bg = "transparent")
 
-combinedPlot <- gridExtra::arrangeGrob(overallGraphic,
-                                       stateGraphic + ggplot2::labs(title = NULL),
-                                       yearGraphic + ggplot2::labs(title = NULL),
-                                       layout_matrix = lay)#,
-                                       #top = "Good Fire & Rx in the Western US (conservative estimate)")
-ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'combined_fig1.png'), units = "in", width = 10)
 
+####COMBINED GRAPHIC
+
+# #Arranging complex grobs: https://cran.r-project.org/web/packages/gridExtra/vignettes/arrangeGrob.html
+# lay <- rbind(c(1, NA),
+#              c(2,3))
+# 
+# combinedPlot <- gridExtra::arrangeGrob(overallGraphic,
+#                                        stateGraphic + ggplot2::labs(title = NULL),
+#                                        yearGraphic + ggplot2::labs(title = NULL),
+#                                        layout_matrix = lay)#,
+#                                        #top = "Good Fire & Rx in the Western US (conservative estimate)")
+# ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, 'combined_fig1.png'), units = "in", width = 10)
+# 
 
 
 library(patchwork)
 
-combinedPlot2 <- (stateGraphic + ggplot2::labs(title = NULL)) / (yearGraphic + ggplot2::labs(title = NULL))
-combinedPlot2
-ggplot2::ggsave(combinedPlot2, filename = here::here(figsDir, 'combined_fig2.png'), units = "in", width = 6, height = 8)
+combinedPlot2HA <- (stateGraphicHA + ggplot2::labs(title = NULL)) / (yearGraphicHA + ggplot2::labs(title = NULL))
+ggplot2::ggsave(combinedPlot2HA, filename = here::here(figsDir, 'combined_fig2_HA.png'), units = "in", width = 6, height = 8)
+
+combinedPlot2AC <- (stateGraphicAC + ggplot2::labs(title = NULL)) / (yearGraphicAC + ggplot2::labs(title = NULL))
+ggplot2::ggsave(combinedPlot2AC, filename = here::here(figsDir, 'combined_fig2_AC.png'), units = "in", width = 6, height = 8)
+
 
 
 
@@ -407,7 +478,8 @@ ggplot2::ggsave(combinedPlot2, filename = here::here(figsDir, 'combined_fig2.png
 ```{r}
 
 #Get table with overall numbers
-overallTbl <- stateAllLong |> 
+overallTblHA <- stateAllLong |> 
+  dplyr::select(-acres) |>
   tidyr::pivot_wider(names_from = "datNm",
                      values_from = "hectares") |>
   dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
@@ -416,6 +488,7 @@ overallTbl <- stateAllLong |>
   dplyr::rename(Group = NAME) |>
   rbind(
     yearAllLong |>
+      dplyr::select(-acres) |>
       tidyr::pivot_wider(names_from = "datNm",
                          values_from = "hectares") |>
       dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
@@ -431,8 +504,35 @@ overallTbl <- stateAllLong |>
   ) |>
   dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
 
+overallTblAC <- stateAllLong |> 
+  dplyr::select(-acres) |>
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "hectares") |>
+  dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
+  #dplyr::mutate(percRxOfTot = paste(round(100 * (rxBurnHa / burnFor)), "%", sep = "")) |>
+  dplyr::select(-STATEABBR) |>
+  dplyr::rename(Group = NAME) |>
+  rbind(
+    yearAllLong |>
+      dplyr::select(-acres) |>
+      tidyr::pivot_wider(names_from = "datNm",
+                         values_from = "hectares") |>
+      dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = "")) |>
+      dplyr::rename(Group = year)
+  ) |>
+  rbind(
+    allLong |>
+      dplyr::select(-datNmFull, -acres) |>
+      tidyr::pivot_wider(names_from = "datNm",
+                         values_from = "hectares") |>
+      dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = ""),
+                    Group = "All")
+  ) |>
+  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor,  ~ . * 2.47105)) |>
+  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
+
 #Create nice table
-kableExtra::kable(overallTbl,
+kableExtra::kable(overallTblHA,
       caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
       format.args = list(big.mark = ","),
       align = rep('l', 5),
@@ -440,7 +540,17 @@ kableExtra::kable(overallTbl,
   kableExtra::column_spec(1, width = "1cm") |>
   kableExtra::column_spec(2:5, width = "3cm") |>
   kableExtra::kable_classic(full_width = F, html_font = "Calibri") |>
-  save_kable_workaround(here::here(figsDir, 'summary_table_v1.png'))
+  save_kable_workaround(here::here(figsDir, 'summary_table_v1_HA.png'))
+
+kableExtra::kable(overallTblAC,
+      caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
+      format.args = list(big.mark = ","),
+      align = rep('l', 5),
+      col.names = c("Group","Prescribed burn forest acres", "Good forest wildfire acres", "Total forest wildfire acres", "Good forest wildfire as a percentage of total forest wildfire")) |>
+  kableExtra::column_spec(1, width = "1cm") |>
+  kableExtra::column_spec(2:5, width = "3cm") |>
+  kableExtra::kable_classic(full_width = F, html_font = "Calibri") |>
+  save_kable_workaround(here::here(figsDir, 'summary_table_v1_AC.png'))
 
 ```
 

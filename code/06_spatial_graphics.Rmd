@@ -261,7 +261,7 @@ m
 ```{r}
 #Function and call to make figure
 
-create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transparency, strk, rngMin, rngMax, pch, bgfill, statecol) {
+create.plots.ha <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transparency, strk, rngMin, rngMax, pch, bgfill, statecol) {
   
   tm <- Sys.time() |>
     gsub(pattern = " ", replacement = "_") |>
@@ -289,12 +289,61 @@ create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transpare
       limits = c(0, max(max(goodFirePoints$frcLowCbiLow), max(nfporsInterest$TOTALACCOMPLISHMENT_HA))),
       name = "Prescribed \nburn \nhectares",
       range = c(rngMin, rngMax))
-  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_forestPerims_rxBubbles_{tm}.png')), units = "in", width = 7)
+  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_forestPerims_rxBubbles_{tm}_HA.png')), units = "in", width = 7)
   
 }
 
 
-create.plots(
+create.plots.ac <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transparency, strk, rngMin, rngMax, pch, bgfill, statecol) {
+  
+  tm <- Sys.time() |>
+    gsub(pattern = " ", replacement = "_") |>
+    gsub(pattern = ":", replacement = "") |>
+    gsub(pattern = ".", replacement = "", fixed = TRUE)
+  
+  #Create perims + bubbles plot
+  ggplot2::ggplot() +
+    ggplot2::geom_sf(data = west, aes(), fill = bgfill, color = statecol) +
+    #ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercAll), color = NA) +
+    ggplot2::geom_sf(data = goodFirePerimsForestOnly, aes(fill = goodPercBurnedFor), color = NA) + #use percentage of only burned forest within perimeter
+    ggplot2::scale_fill_gradient(low = lowGoodFCol, high = goodFCol, limits = c(0, 100)) +
+    ggplot2::geom_sf(data = nfporsInterest, aes(size = TOTALACCOMPLISHMENT), fill = rxCol, color = rxBCol, pch = pch, alpha = transparency, stroke = strk) +
+    #ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
+    ggplot2::labs(
+      #title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn",
+      fill = "Percentage of \nforest within \nperimeter \nburned by \ngood fire")  +
+    theme_void() +
+    theme(plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          legend.spacing.y = ggplot2::unit(0.6, 'cm'),
+          text = element_text(family = "Arial", size = 12, lineheight = 1.15)) +
+    ggplot2::scale_size_continuous(
+      labels = scales::label_comma(),
+      limits = c(0, max(max(goodFirePoints$frcLowCbiLow) * 2.47105, max(nfporsInterest$TOTALACCOMPLISHMENT))),
+      name = "Prescribed \nburn \nacres",
+      range = c(rngMin, rngMax))
+  ggplot2::ggsave(filename = here::here(figsDir, glue::glue('westwide_forestPerims_rxBubbles_{tm}_AC.png')), units = "in", width = 7)
+  
+}
+
+
+create.plots.ha(
+  goodFCol = "#dc0ab4ff",
+  lowGoodFCol = "goldenrod2",
+  gfBCol = "transparent",
+  rxCol = "darkblue",
+  rxBCol = "transparent",
+  transparency = 1,
+  strk = 0,
+  rngMin = 0.1,
+  rngMax = 2.65, #tested until visual comparison of bubbles to that from leaflet is as similar as possible
+  pch = 21,
+  bgfill = "gray95",
+  statecol = "gray50"
+)
+
+
+create.plots.ac(
   goodFCol = "#dc0ab4ff",
   lowGoodFCol = "goldenrod2",
   gfBCol = "transparent",
