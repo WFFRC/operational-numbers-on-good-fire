@@ -92,6 +92,15 @@ smallFires <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/
 yearSummary <- yearSummary |> dplyr::select(-Unburned)
 stateSummary <- stateSummary |> dplyr::select(-Unburned)
 
+
+#Pull in conservative forest stats, from GEE script conservative_forest_stats.js
+fPixFiles <- list.files(here::here('data/derived'), pattern = "forest_pixel_count", full.names = TRUE)
+fPixAll <- fPixFiles %>% 
+  purrr::map_dfr(~read_csv(.)) |>
+  dplyr::mutate(hectares = count * 0.09) |> #conversion from 30x30m (900m^2) pixels to hectares
+  dplyr::select(NAME, year, hectares)
+
+
 ```
 
 
@@ -120,7 +129,12 @@ nfporsWithGee |>
 nfporsWithGeeForest <- nfporsWithGee |>
   dplyr::filter(LCMS_PreBurnYear == 1 & LCMAP_PreBurnYear == 4)
 
+nfporsWithGeeForestBroadcast <- nfporsWithGeeForest |> dplyr::filter(TYPENAME == "Broadcast Burn")
+
 nfporsWithGeeForestFRGLowMix = dplyr::filter(nfporsWithGeeForest, FRGDescription == "frcLowMix")
+
+nfporsWithGeeForestBroadcastFRG <- nfporsWithGeeForestFRGLowMix |> dplyr::filter(TYPENAME == "Broadcast Burn")
+
 
 mtbsForest <- mtbs |>
   dplyr::mutate(percFor = preFireFor / areaHA * 100) |>
@@ -148,9 +162,16 @@ totForFire <- sum(yearSummary$`burnFor (low+mod+high CBI, HA)`)
 totRx <- sum(nfporsWithGee$TOTALACCOMPLISHMENT_HA)
 totRxForest <- sum(nfporsWithGeeForest$TOTALACCOMPLISHMENT_HA)
 totRxForestFRG <- sum(nfporsWithGeeForestFRGLowMix$TOTALACCOMPLISHMENT_HA)
+totRxForestBroadcast <- sum(nfporsWithGeeForestBroadcast$TOTALACCOMPLISHMENT_HA)
+totRxForestBroadcastFRG <- sum(nfporsWithGeeForestBroadcastFRG$TOTALACCOMPLISHMENT_HA)
 totAllGood <- sum(totLowGood, totHighGood)
 percRxForestHa <-(totRxForest/totRx)*100
 percRxForestFRGHa <-(totRxForestFRG/totRx)*100
+percRxForestFRGHaOfForest <-(totRxForestFRG/totRxForest)*100
+percRxBroadcastOfForestHa <- (totRxForestBroadcast / totRxForest) * 100
+percRxBroadcastOfForestFRGHa <- (totRxForestBroadcastFRG / totRxForestFRG) * 100
+percRxBroadcasInMatchFRG <- (totRxForestBroadcastFRG / totRxForestBroadcast) * 100
+
 
 #Percentages
 
@@ -165,6 +186,7 @@ nNFPORSForest <- length(unique(nfporsWithGeeForest$objectid__))
 nNFPORSForestLowMix <- length(unique(nfporsWithGeeForestFRGLowMix$objectid__))
 percRxForest <- (nNFPORSForest/nNFPORS)*100
 percRxForestFRG <- (nNFPORSForestLowMix/nNFPORS)*100
+
 
 #Tabular stats
 summTab1 <- as.data.frame(cbind(c('Low severity good forest fire', 'High severity good forest fire', 'Total any severity good forest fire'), c(totLowGood, totHighGood,totAllGood))) |>
@@ -477,6 +499,21 @@ ggplot2::ggsave(combinedPlot2AC, filename = here::here(figsDir, 'combined_fig2_A
 
 ```{r}
 
+#Prep forest numbers
+stateForest <- fPixAll |>
+  dplyr::group_by(NAME) |>
+  dplyr::summarise(forestHectares = mean(hectares)) |>
+  dplyr::rename(Group = NAME) |>
+  dplyr::ungroup()
+yearForest <- fPixAll |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(forestHectares = sum(hectares)) |>
+  dplyr::rename(Group = year) |>
+  dplyr::ungroup()
+allForest <- rbind(stateForest, yearForest) |>
+  rbind(c("All Years", mean(yearForest$forestHectares))) |>
+  dplyr::mutate(forestHectares = round(as.numeric(forestHectares)))
+
 #Get table with overall numbers
 overallTblHA <- stateAllLong |> 
   dplyr::select(-acres) |>
@@ -500,9 +537,14 @@ overallTblHA <- stateAllLong |>
       tidyr::pivot_wider(names_from = "datNm",
                          values_from = "hectares") |>
       dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = ""),
-                    Group = "All")
+                    Group = "All Years")
   ) |>
-  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
+  dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round)) |>
+  dplyr::left_join(allForest, by = "Group") |>
+  dplyr::mutate(percGoodOfFor = paste(round(100 * (goodFire / forestHectares), 1), "%", sep = "")) |>
+  dplyr::relocate(forestHectares, .after = burnFor)
+
+
 
 overallTblAC <- stateAllLong |> 
   dplyr::select(-acres) |>
@@ -526,20 +568,23 @@ overallTblAC <- stateAllLong |>
       tidyr::pivot_wider(names_from = "datNm",
                          values_from = "hectares") |>
       dplyr::mutate(percGoodOfTot = paste(round(100 * (goodFire / burnFor)), "%", sep = ""),
-                    Group = "All")
+                    Group = "All Years")
   ) |>
   dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor,  ~ . * 2.47105)) |>
   dplyr::mutate(dplyr::across(.cols = rxBurnHa:burnFor, round))
+
+
 
 #Create nice table
 kableExtra::kable(overallTblHA,
       caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
       format.args = list(big.mark = ","),
-      align = rep('l', 5),
-      col.names = c("Group","Prescribed burn forest HA", "Good forest wildfire HA", "Total forest wildfire HA", "Good forest wildfire as a percentage of total forest wildfire")) |>
+      align = rep('l', 7),
+      col.names = c("Group","Prescribed burn forest HA", "Good forest wildfire HA", "Total forest wildfire HA", "Total forest HA", "Good forest wildfire as a percentage of total forest wildfire", "Good forest wildfire as a percentage of total forest")) |>
   kableExtra::column_spec(1, width = "1cm") |>
-  kableExtra::column_spec(2:5, width = "3cm") |>
+  kableExtra::column_spec(2:7, width = "3cm") |>
   kableExtra::kable_classic(full_width = F, html_font = "Calibri") |>
+  row_spec(11, extra_css = "border-bottom: 1px dashed;") |>
   save_kable_workaround(here::here(figsDir, 'summary_table_v1_HA.png'))
 
 kableExtra::kable(overallTblAC,
