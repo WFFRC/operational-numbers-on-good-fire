@@ -97,7 +97,7 @@ stateSummary <- stateSummary |> dplyr::select(-Unburned)
 fPixFiles <- list.files(here::here('data/derived'), pattern = "forest_pixel_count", full.names = TRUE)
 fPixAll <- fPixFiles %>% 
   purrr::map_dfr(~read_csv(.)) |>
-  dplyr::mutate(hectares = count * 0.09) |> #conversion from 30x30m (900m^2) pixels to hectares
+  dplyr::mutate(hectares = conservativeForest * 900 * 0.0001) |> #conversion from 30x30m (900m^2) pixels to hectares
   dplyr::select(NAME, year, hectares)
 
 
