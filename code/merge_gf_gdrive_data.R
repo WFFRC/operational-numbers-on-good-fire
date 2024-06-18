@@ -83,7 +83,8 @@ cleanGFDataSet <- fullGFDataSet |>
   dplyr::relocate(where(is.numeric), .after = where(is.character)) |>
   dplyr::relocate(TotalForestedAreaInYearPriorAcres, .before = TotalBurnedForestAcres) |>
   dplyr::relocate(TotalPolygonAreaAcres, .before = TotalForestedAreaInYearPriorAcres) |>
-  dplyr::relocate(year, .before = TotalPolygonAreaAcres)
+  dplyr::relocate(year, .before = TotalPolygonAreaAcres) |>
+  dplyr::mutate(TotalGoodFireAcres = HighSeverityGoodFireAcres + LowerSeverityGoodFireAcres)
 
 readr::write_csv(cleanGFDataSet, here::here('data', 'derived', paste0("clean_gf_data_combined_", summarizeName, ".csv")))
 
