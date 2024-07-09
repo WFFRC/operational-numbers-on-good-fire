@@ -2,6 +2,8 @@
 //This code is meant to be run on Google Earth Engine
 //code link: https://code.earthengine.google.com/0279a285caa496ae638011c358c75f08
 
+//Before running, load output from script 00b_prep_rx_for_gee.R to GEE
+
 
 /////////////// MANAGE DATA ///////////////
 

@@ -11,7 +11,7 @@ library('here')
 
 # INPUTS ----
 
-summarizeName <- 'sparkWatersheds'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
+summarizeName <- 'states'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
 driveFolder <- 'GEE_Exports'     # MAKE SURE THAT THIS IS THE GDRIVE FOLDER YOU ARE USING. 'GEE_Exports' is the default for the export script
 years <- seq(2010,2020)       # This shouldn't need to be changed
 
@@ -52,9 +52,17 @@ readr::write_csv(fullGFDataSet, here::here('data', 'derived', paste0("gf_data_co
 # Clean dataset and re-write as clean dataset
 
 cleanGFDataSet <- fullGFDataSet |>
-  dplyr::select(-system.index, -.geo) |>
-  dplyr::filter(SPARK != 'AK - Bristol Bay')|>
-  dplyr::filter(SPARK != 'BC - Bulkley Morice') |>
+  dplyr::select(-system.index, -.geo)
+
+if(grepl('spark', summarizeName)) {
+  if(!summarizeName == 'sparkEcoregions') {
+    cleanGFDataSet <- cleanGFDataSet |>
+      dplyr::filter(SPARK != 'AK - Bristol Bay') |>
+      dplyr::filter(SPARK != 'BC - Bulkley Morice')
+  }
+}
+
+cleanGFDataSet <- cleanGFDataSet |>
   dplyr::mutate(cbiAnyBurned = cbiAnyBurned * 0.000247105,
                 cbiHigh = cbiHigh * 0.000247105,
                 cbiLower = cbiLower * 0.000247105,

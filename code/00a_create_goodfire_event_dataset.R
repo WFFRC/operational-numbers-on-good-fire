@@ -84,6 +84,58 @@ st_write_shp <- function(shp, location, filename, zipOnly, overwrite) {
 }
 
 
+
+create.combined.event.set <- function(earliestYear, latestYear) {
+  # WELTY
+  #filter to time period and geographic area of interest, add size category
+  weltyInterest <- welty |>
+    dplyr::filter(Fire_Year >= earliestYear & Fire_Year <= latestYear) |>
+    sf::st_filter(west) |>
+    dplyr::mutate(SizeCategory = dplyr::case_when(GIS_Acres >= 1000 ~ "Large",
+                                                  GIS_Acres < 1000 ~ "Small"))
+  
+  #Split welty into RX & wildfire
+  weltyInterestRx <- weltyInterest |>
+    dplyr::filter(Assigned_F == "Prescribed Fire" | Assigned_F == "Unknown - Likely Prescribed Fire")
+  weltyInterestWF <- weltyInterest|>
+    dplyr::filter(Assigned_F == "Wildfire" | Assigned_F == "Likely Wildfire")
+  
+  weltyInterestWFSub1000 <- weltyInterestWF |>
+    dplyr::filter(SizeCategory == "Small") |>
+    dplyr::mutate(Dataset = "Welty", DatasetID = OBJECTID) |>
+    dplyr::select(DatasetID, Dataset, Fire_Year)
+  
+  # MTBS
+  
+  mtbsInterestWF <- mtbs |>
+    dplyr::filter(Incid_Type != "Prescribed Fire") |>
+    #dplyr::filter(Incid_Type == "Wildfire") |>
+    dplyr::mutate(Fire_Year = lubridate::year(Ig_Date)) |>
+    dplyr::filter(Fire_Year>= earliestYear & Fire_Year <= latestYear) |>
+    sf::st_filter(west) |>
+    dplyr::mutate(Dataset = "MTBS", DatasetID = Event_ID) |>
+    dplyr::select(DatasetID, Dataset, Fire_Year)
+  
+  ## MERGE & WRITE ----
+  allFiresInterest <- rbind(mtbsInterestWF, weltyInterestWFSub1000) |>
+    dplyr::mutate(GoodFireID = paste0("GF_", dplyr::row_number()))
+  
+  
+  derivedDatDir <- here::here('data', 'derived')
+  if(!dir.exists(derivedDatDir)) {
+    dir.create(derivedDatDir)
+  }
+  
+  flNm <- paste("goodfire_dataset_for_analysis", earliestYear, latestYear, sep = "_")
+  
+  sf::st_write(allFiresInterest, here::here(derivedDatDir, paste0(flNm, ".gpkg")), append = FALSE)
+  st_write_shp(shp = allFiresInterest,
+               location = here::here('data', 'derived'),
+               filename = flNm,
+               zipOnly = TRUE,
+               overwrite = TRUE)
+}
+
 # OPERATE ----
 
 epsg <- "EPSG:5070"
@@ -96,63 +148,37 @@ west <- tigris::states() |>
 
 
 
-## WELTY ----
-
+## Access data
 welty <- sf::st_read(here::here('data', 'raw', 'welty_combined_wildland_fire_dataset', 'welty_combined_wildland_fire_perimeters.shp')) |>
   sf::st_transform(epsg)
 
 
-#filter to time period and geographic area of interest, add size category
-weltyInterest <- welty |>
-  dplyr::filter(Fire_Year >= 2010 & Fire_Year <= 2020) |>
-  sf::st_filter(west) |>
-  dplyr::mutate(SizeCategory = dplyr::case_when(GIS_Acres >= 1000 ~ "Large",
-                                                GIS_Acres < 1000 ~ "Small"))
-
-#Split welty into RX & wildfire
-weltyInterestRx <- weltyInterest |>
-  dplyr::filter(Assigned_F == "Prescribed Fire" | Assigned_F == "Unknown - Likely Prescribed Fire")
-weltyInterestWF <- weltyInterest|>
-  dplyr::filter(Assigned_F == "Wildfire" | Assigned_F == "Likely Wildfire")
-
-weltyInterestWFSub1000 <- weltyInterestWF |>
-  dplyr::filter(SizeCategory == "Small") |>
-  dplyr::select(Fire_Year)
-
-
-## MTBS ----
-mtbsURL <- "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/MTBS_Fire/data/composite_data/burned_area_extent_shapefile/mtbs_perimeter_data.zip"
-
-mtbs <- glue::glue(
-  "/vsizip/vsicurl/", #magic remote connection
-  mtbsURL, #copied link to download location
-  "/mtbs_perims_DD.shp") |> #path inside zip file
-  sf::st_read() |>
+mtbsFile <- here::here('data', 'raw', 'mtbs_perims.gpkg')
+if(!file.exists(mtbsFile)) {
+  mtbsURL <- "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/MTBS_Fire/data/composite_data/burned_area_extent_shapefile/mtbs_perimeter_data.zip"
+  
+  mtbs <- glue::glue(
+    "/vsizip/vsicurl/", #magic remote connection
+    mtbsURL, #copied link to download location
+    "/mtbs_perims_DD.shp") |> #path inside zip file
+    sf::st_read()
+  
+  sf::st_write(mtbs, mtbsFile)
+  
+} else {
+  mtbs <- sf::st_read(mtbsFile)
+}
+mtbs <- mtbs |>
   sf::st_transform(epsg)
 
 unique(mtbs$Incid_Type)
 
-mtbsInterestWF <- mtbs |>
-  dplyr::filter(Incid_Type != "Prescribed Fire") |>
-  #dplyr::filter(Incid_Type == "Wildfire") |>
-  dplyr::mutate(Fire_Year = lubridate::year(Ig_Date)) |>
-  dplyr::filter(Fire_Year>= 2010 & Fire_Year <= 2020) |>
-  sf::st_filter(west) |>
-  dplyr::select(Fire_Year)
+
+# Use operational function
+create.combined.event.set(earliestYear = 2010, latestYear = 2020)
+create.combined.event.set(earliestYear = 1990, latestYear = 2020)
 
 
 
-## MERGE & WRITE ----
-allFiresInterest <- rbind(mtbsInterestWF, weltyInterestWFSub1000)
-
-sf::st_write(allFiresInterest, here::here('data', 'derived', 'goodfire_dataset_for_analysis.gpkg'), append = FALSE)
-st_write_shp(shp = allFiresInterest,
-             location = here::here('data', 'derived'),
-             filename = "goodfire_dataset_for_analysis",
-             zipOnly = TRUE,
-             overwrite = TRUE)
 
 
-
-# x <- fullDataMTBS |>
-#   dplyr::filter(!Event_ID %in% mtbsInterestWF$Event_ID)
