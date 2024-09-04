@@ -1,11 +1,10 @@
-# Good fire in western U.S. forests: estimating the beneficial ecosystem work of wildfires
-
-Code, data, and graphics to accompany {ADD CITATION & DOI HERE ONCE PUBLISHED}
-
-
 ![graphical abstract showing data layers integrated and software used in workflow](/images/gf_overview.jpg)
 
-# Contents
+# Good fire in western U.S. forests: estimating the beneficial ecosystem work of wildfires
+
+This repository contains code, data, and graphics to accompany {ADD CITATION & DOI HERE ONCE PUBLISHED}
+
+## Contents
 
 This repository is intended to support research reproduction according to principles of Open Science and FAIR data principles.
 
