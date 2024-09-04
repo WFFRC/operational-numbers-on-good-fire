@@ -1,5 +1,4 @@
 Analyze data to get a number on prescribed burns in the Western US & visualize comparisons to low-severity burns
-This script is the most recent
 Tyler L. McIntosh
 CU Boulder CIRES Earth Lab
 Last updated: 2/8/23

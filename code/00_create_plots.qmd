@@ -1,3 +1,486 @@
 
+Analyze data to get a number on prescribed burns in the Western US & visualize comparisons to low-severity burns
+This is the most recent script
+Tyler L. McIntosh
+CU Boulder CIRES Earth Lab
+Last updated: 7/13/23
 
-write_csv(rxStateSummary, here::here('data', 'derived', "rx_state_summary.csv"))
+This script uses the following naming conventions wherever possible:
+ lowerCamelCase for variables
+ period.separated for functions
+ underscore_separated for files
+
+# Setup
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+
+## Libraries ----
+
+#Check the required libraries and download if needed
+list.of.packages <- c("tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
+                      "terra",
+                      "sf",
+                      "mapview",
+                      "here",
+                      "future", "future.apply", "furrr", "doFuture", "progressr", #Futureverse!
+                      "tictoc", 
+                      "mblm", #Median-based linear models (i.e. thiel-sen)
+                      "plyr",
+                      "gridExtra", #complex graphics
+                      "kableExtra", #nice tables
+                      "magick", #for kableExtra
+                      "googlesheets4", #read in google sheet data
+                      "scales", #add commas to ggplot axis
+                      "tigris", #US data
+                      "tmap", #mapping
+                      "webshot2",
+                      "webshot",
+                      "patchwork",
+                      'googledrive',
+                      "scales") #add commas to axis
+
+#Install all packages that aren't installed yet
+install.packages(setdiff(list.of.packages, rownames(installed.packages())))
+
+#Load all packages
+invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisible' to prevent output being displayed
+
+## Clean workspace & set up environment ----
+rm(list=ls()) #Ensure empty workspace if running from beginning
+
+#Ensure necessary directories are created
+figsDir <- here::here("figs")
+if (!dir.exists(figsDir)){
+  dir.create(figsDir)
+}
+
+
+derivedDatDir <- here::here("data", "derived")
+if (!dir.exists(derivedDatDir)){
+  dir.create(derivedDatDir)
+}
+
+```
+
+# FUNCTIONS
+
+``` {r}
+
+# A function to read a csv from a google drive path
+read.csv.from.gdrive <- function(path) {
+  f <- googledrive::drive_get(path)
+  csv <- f |>
+    googledrive::drive_read_string() %>%
+    read.csv(text = .)
+  return(csv)
+}
+
+# Function to fix a current (3/20/24) issue with kableExtra::save_kable in which it will not export .pngs
+# PARAMETERS
+# k : output from kable
+# filePath : the full desired filepath (e.g. 'myDir/figs/myTable.png')
+save_kable_workaround <- function(k, filePath) {
+  htmlPath <- paste0(tools::file_path_sans_ext(filePath), ".html")
+  kableExtra::save_kable(x = k, file = htmlPath)
+  webshot2::webshot(htmlPath, file = filePath)
+  file.remove(htmlPath)
+}
+
+# Function to get a hex color from R color
+# PARAMETERS
+# color : a standard R color (e.g. 'red' or 'steelblue')
+col2hex <- function(color) {
+  rgb_values <- col2rgb(color)
+  hex_color <- rgb(rgb_values[1], rgb_values[2], rgb_values[3], maxColorValue=255)
+  return(hex_color)
+}
+
+
+```
+
+
+# Read in the data
+
+```{r}
+
+driveFolder <- "GEE_Exports" # The operating google drive folder
+
+rxData <- readr::read_csv(here::here('data', 'derived', "rx_state_summary.csv")) #from 03b
+
+gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_2010_2020.csv')) #from 03a
+
+gfEventDataFl <- here::here('data', 'derived', 'gf_fire_events_2010_2020.csv')
+if(file.exists(gfEventDataFl)) {
+  gfEventData <- readr::read_csv(gfEventDataFl)
+} else {
+  gfEventData <- read.csv.from.gdrive(paste0("~/", driveFolder, "/gf_data_fire_events_2010_2020.csv")) #from GEE
+  readr::write_csv(gfEventData, gfEventDataFl)
+}
+
+```
+
+# Manage units
+```{r}
+
+operatingUnits <- "Hectares" #either 'Hectares' or 'Acres'
+
+#set unit conversion from m^2
+if(operatingUnits == "Hectares") {
+  unitConversion <- 0.0001
+  unitAbbr <- "ha"
+} else if(operatingUnits == "Acres") {
+  unitConversion <- 0.000247105
+  unitAbbr <- "ac"
+}
+
+rxData <- rxData |>
+  dplyr::mutate(rxBurnArea = rxBurnArea * unitConversion,
+                units = operatingUnits)
+gfData <- gfData |>
+  dplyr::relocate(yearPriorForest, .after = totalArea) |>
+  dplyr::mutate(across(cbiAnyBurned:yearPriorForest, ~ . * unitConversion),
+                units = operatingUnits)
+
+```
+
+
+
+
+# Merge data
+  
+
+```{r}
+
+# Merge datasets
+rxDataNew <- rxData |>
+  dplyr::group_by(year, NAME) |>
+  dplyr::summarise(rxBurn = sum(rxBurnArea)) |>
+  dplyr::ungroup()
+
+gfDataNew <- gfData |>
+  dplyr::group_by(year, NAME, STUSPS) |>
+  dplyr::summarise(lowerGoodFire = sum(lowerGoodFire),
+                   highGoodFire = sum(highGoodFire),
+                   burnedForest = sum(cbiAnyBurned),
+                   yearPriorForest = sum(yearPriorForest)) |>
+  dplyr::ungroup()
+
+allData <- gfDataNew |>
+  dplyr::left_join(rxDataNew) |>
+  tidyr::pivot_longer(cols = c(rxBurn,
+                               lowerGoodFire,
+                               highGoodFire,
+                               burnedForest,
+                               yearPriorForest),
+                      names_to = "datNm",
+                      values_to = "area")|>
+  dplyr::mutate(datNmFull = dplyr::case_when(datNm == 'lowerGoodFire' ~ "Lower Severity \nGood Forest Wildfire",
+                                             datNm == 'rxBurn' ~ 'Prescribed \nForest Burns',
+                                             datNm == 'burnedForest' ~ 'Total Forest Wildfire',
+                                             datNm == 'highGoodFire' ~ "High Severity Good Forest Wildfire",
+                                             datNm == 'yearPriorForest' ~ 'Total Forest Prior')) |>
+  dplyr::mutate(stackGroup = dplyr::case_when(datNm == 'lowerGoodFire' ~ "grp2",
+                                             datNm == 'rxBurn' ~ 'grp1',
+                                             datNm == 'burnedForest' ~ 'grp3',
+                                             datNm == 'highGoodFire' ~ "grp2",
+                                             datNm == 'yearPriorForest' ~ 'grp4'))  |>
+  dplyr::mutate(stackGroup = factor(stackGroup, levels = c('grp3', 'grp2', 'grp1', 'grp4'))) |>
+  dplyr::mutate(datNm = factor(datNm, levels = c("burnedForest", "lowerGoodFire", "highGoodFire", "rxBurn", "yearPriorForest")))
+
+
+
+#Summarize to state
+stateSummary <- allData |>
+  dplyr::group_by(NAME, STUSPS, datNm, datNmFull, stackGroup) |>
+  dplyr::summarise(area = sum(area)) |>
+  dplyr::ungroup()
+
+
+#Summarize to year
+yearSummary <- allData |>
+  dplyr::group_by(year, datNm, datNmFull, stackGroup) |>
+  dplyr::summarise(area = sum(area)) |>
+  dplyr::ungroup()
+
+
+#Summarize all
+allSummary <- allData |>
+  dplyr::group_by(datNm, datNmFull, stackGroup) |>
+  dplyr::summarise(area = sum(area)) |>
+  dplyr::ungroup()
+
+#Make sure that yearPriorForest is an average, rather than a summation
+nYears <- length(unique(gfData$year))
+stateSummary <- stateSummary |>
+  dplyr::mutate(area = ifelse(datNm == "yearPriorForest", area / nYears, area))
+allSummary <- allSummary |>
+  dplyr::mutate(area = ifelse(datNm == "yearPriorForest", area / nYears, area))
+
+```
+
+
+# Create graphics
+
+## Overall Graphic
+```{r}
+
+#Set graphic parameters
+rxCol <- col2hex("darkblue")
+gFCol <- "#dc0ab4ff"
+totCol <- col2hex("goldenrod2")
+gfHsCol <- '#FA6EE2' #"#FA97E7"
+plotColors <- c(rxCol, gfHsCol, gFCol, totCol)
+plotLabels <- c("Prescribed Burns", "High Severity Good Wildfire", "Lower Severity Good Wildfire", "Total Wildfire")
+
+
+#Overall graphic
+textSz <- 5.5
+#Needs different parameters since turned sideways
+plotColors2 <- c(totCol, gfHsCol, gFCol, rxCol)
+plotLabels2 <- c("Lower Severity Good Forest Wildfire", "Higher Severity Good Forest Wildfire", "Prescribed Forest Burns", "Total Forest Wildfire")
+
+
+overallGraphicData <- allSummary |>
+  dplyr::filter(datNm != "yearPriorForest") |>
+  dplyr::mutate(datNm = forcats::fct_rev(datNm)) |>
+  dplyr::mutate(datNmFull = ifelse(datNm == "lowerGoodFire", "Good Forest Wildfire", datNmFull))
+
+highSevNum <- overallGraphicData |>
+  dplyr::filter(datNm == "highGoodFire", ) |>
+  dplyr::select('area') |>
+  dplyr::pull()
+lowerSevNum <- overallGraphicData |>
+  dplyr::filter(datNm == "lowerGoodFire", ) |>
+  dplyr::select('area') |>
+  dplyr::pull()
+
+ggplot2::ggplot(overallGraphicData) +
+    ggplot2::geom_bar(data = overallGraphicData |> dplyr::filter(stackGroup == "grp3"),
+                    aes(x = stackGroup, y = area, fill = datNm),
+                    position = position_stack(),
+                    stat = "identity",
+                    show.legend = FALSE) + 
+    ggplot2::geom_bar(data = overallGraphicData |> dplyr::filter(stackGroup == "grp2"),
+                    aes(x = stackGroup, y = area, fill = datNm),
+                    position = position_stack(),
+                    stat = "identity",
+                    show.legend = FALSE) +  
+  ggplot2::geom_bar(data = overallGraphicData |> dplyr::filter(stackGroup == "grp1"),
+                    aes(x = stackGroup, y = area, fill = datNm),
+                    position = position_stack(),
+                    stat = "identity",
+                    show.legend = FALSE) +
+  ggplot2::theme_void() +
+  ggplot2::scale_fill_manual(values = plotColors2, labels = plotLabels2) +
+  ggplot2::coord_flip() +
+  geom_text(data = overallGraphicData |> dplyr::filter(datNm != 'burnedForest' & datNm != 'highGoodFire' & datNm != 'lowerGoodFire'),
+            aes(x = stackGroup, y = area,
+                #label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")),
+                label = glue::glue("{scales::comma(area)} {unitAbbr}")),
+            hjust = -0.1, colour = "black", size = textSz) +
+  geom_text(data = overallGraphicData |> dplyr::filter(datNm == 'burnedForest'),
+            aes(x = stackGroup, y = area,
+                #label = glue::glue("{scales::comma(hectares)} ha\n({scales::comma(acres)} acres)")),
+                label = glue::glue("{scales::comma(area)} {unitAbbr}")),
+            hjust = 1.2, colour = "white", size = textSz) +
+  geom_text(data = overallGraphicData |> dplyr::filter(datNm != 'highGoodFire'), aes(x = stackGroup , y = 0, label = datNmFull), hjust = -0.1, colour = "white", size = textSz) #+
+  # geom_text(data = overallGraphicData |> dplyr::filter(datNm == 'lowerGoodFire'), aes(x = stackGroup, y = 0, label = paste("Lower Severity: ", scales::comma(lowerSevNum), unitAbbr)), nudge_x = 0.2, hjust = -1.55, colour = "black", size = textSz-2) +
+  # geom_text(data = overallGraphicData |> dplyr::filter(datNm == 'highGoodFire'), aes(x = stackGroup, y = 0, label = paste("High Severity: ", scales::comma(highSevNum), unitAbbr)), nudge_x = -0.2, hjust = -1.9, colour = "black", size = textSz-2)
+
+ggplot2::ggsave(filename = here::here(figsDir, glue::glue('overall_new_{unitAbbr}.png')), units = "in", width = 6, height = 2.5, bg = "transparent")
+
+
+
+```
+
+## State & Year graphics
+```{r}
+
+bar_width <- 0.3
+
+
+#State graphic
+stateGraphicData <- stateSummary |>
+  dplyr::filter(datNm != "yearPriorForest") |>
+  dplyr::mutate(datNm = factor(datNm, levels = c("burnedForest", "highGoodFire", "lowerGoodFire", "rxBurn", "yearPriorForest")))
+
+stateGraphic <- ggplot2::ggplot(stateGraphicData)  +
+  ggplot2::geom_bar(data = stateGraphicData |> dplyr::filter(stackGroup == "grp1"),
+                    aes(x = STUSPS, y = area, fill = datNm),
+                    position = position_nudge(x = -bar_width),
+                    stat = "identity",
+                    show.legend = FALSE,
+                    width = bar_width) +
+  ggplot2::geom_bar(data = stateGraphicData |> dplyr::filter(stackGroup == "grp2"),
+                    aes(x = STUSPS, y = area, fill = datNm),
+                    position = position_stack(),
+                    stat = "identity",
+                    show.legend = FALSE,
+                    width = bar_width) +  
+  ggplot2::geom_bar(data = stateGraphicData |> dplyr::filter(stackGroup == "grp3"),
+                    aes(x = STUSPS, y = area, fill = datNm),
+                    position = position_nudge(x = bar_width),
+                    stat = "identity",
+                    show.legend = FALSE,
+                    width = bar_width) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels) +
+  xlab("State") +
+  ylab(operatingUnits) +
+  labs(title = "Good fire in Western U.S. forests by state (conservative estimate)") +
+  scale_y_continuous(labels=comma,
+                     limits = c(0, 2000000)#,
+                     # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                     #                     name = "Acres",
+                     #                     labels = comma)
+                     ) +
+  theme_light() +
+  theme(legend.title = element_blank(),
+        text = element_text(size = 15))
+stateGraphic
+  
+
+#Year graphic
+yearGraphicData <- yearSummary |>
+  dplyr::filter(datNm != "yearPriorForest") |>
+  dplyr::mutate(datNm = factor(datNm, levels = c("burnedForest", "highGoodFire", "lowerGoodFire", "rxBurn", "yearPriorForest"))) |>
+  dplyr::mutate(year = as.character(year))
+
+yearGraphic <- ggplot2::ggplot(yearGraphicData)  +
+  ggplot2::geom_bar(data = yearGraphicData |> dplyr::filter(stackGroup == "grp1"),
+                    aes(x = year, y = area, fill = datNm),
+                    position = position_nudge(x = -bar_width),
+                    stat = "identity",
+                    show.legend = TRUE,
+                    width = bar_width) +
+  ggplot2::geom_bar(data = yearGraphicData |> dplyr::filter(stackGroup == "grp2"),
+                    aes(x = year, y = area, fill = datNm),
+                    position = position_stack(),
+                    stat = "identity",
+                    show.legend = TRUE,
+                    width = bar_width) +  
+  ggplot2::geom_bar(data = yearGraphicData |> dplyr::filter(stackGroup == "grp3"),
+                    aes(x = year, y = area, fill = datNm),
+                    position = position_nudge(x = bar_width),
+                    stat = "identity",
+                    show.legend = TRUE,
+                    width = bar_width) + 
+  scale_fill_manual(values = plotColors, labels = plotLabels) +
+  xlab("Year") +
+  ylab(operatingUnits) +
+  labs(title = "Good fire in Western U.S. forests by year (conservative estimate)") +
+  scale_y_continuous(labels=comma,
+                     limits = c(0, 2000000)#,
+                     # sec.axis = sec_axis(trans = ~ . * 2.47105, #add second axis showing acres
+                     #                     name = "Acres",
+                     #                     labels = comma)
+                     ) +
+  theme_light() +
+  theme(legend.title = element_blank(),
+        text = element_text(size = 15),
+        legend.position = "bottom",
+        #legend.position = c(0.3, 0),) +
+        legend.margin = margin(t = 0, r = 30, b = 0, l = -30)) +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) 
+yearGraphic
+  
+
+#Create a combined plot
+combinedPlot <- (stateGraphic + ggplot2::labs(title = NULL)) / (yearGraphic + ggplot2::labs(title = NULL))
+ggplot2::ggsave(combinedPlot, filename = here::here(figsDir, glue::glue('combined_fig2_{unitAbbr}.png')), units = "in", width = 6, height = 8)
+
+
+
+```
+
+# Create tables
+
+do % based on combo number. +2, -1 column. include total good fire column. remove total forest HA
+
+
+```{r}
+
+#Create as separate tables and merge
+stateTable <- stateSummary |>
+  dplyr::select(-stackGroup, -datNmFull, -STUSPS) |>
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "area") |>
+  dplyr::rename(Group = NAME)
+
+yearTable <- yearSummary |>
+  dplyr::select(-stackGroup, -datNmFull) |>
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "area") |>
+  dplyr::rename(Group = year)
+
+allTable <- allSummary |>
+  dplyr::select(-stackGroup, -datNmFull) |>
+  tidyr::pivot_wider(names_from = "datNm",
+                     values_from = "area") |>
+  dplyr::mutate(Group = "All Years")
+  
+mergedTable <- rbind(stateTable, yearTable, allTable) |>
+  dplyr::mutate(totGoodFire = highGoodFire + lowerGoodFire,
+                percGoodOfTot = paste(round(100 * (totGoodFire / burnedForest)), "%", sep = ""),
+                percGoodOfForest = paste(round(100 * (totGoodFire / yearPriorForest), 1), "%", sep = "")) |>
+  dplyr::select(-yearPriorForest) |>
+  dplyr::select(Group, rxBurn, lowerGoodFire, highGoodFire, totGoodFire, burnedForest, percGoodOfTot, percGoodOfForest) |>
+  dplyr::mutate(dplyr::across(.cols = rxBurn:burnedForest, round))
+
+
+#Create nice table
+x <- kableExtra::kable(mergedTable,
+      caption = "Good fire in the western U.S. by year, state, and overall (2010-2020)",
+      format.args = list(big.mark = ","),
+      align = rep('l', 8),
+      col.names = c("Group",
+                    glue::glue("Prescribed burn forest {unitAbbr}"),
+                    glue::glue("Lower severity good forest wildfire {unitAbbr}"),
+                    glue::glue("High severity good forest wildfire {unitAbbr}"),
+                    glue::glue("Total good forest wildfire {unitAbbr}"),
+                    glue::glue("Total forest wildfire {unitAbbr}"),
+                    "All good forest wildfire as a percentage of total forest wildfire",
+                    "All good forest wildfire as a percentage of total forest")) |>
+  kableExtra::column_spec(1, width = "1cm") |>
+  kableExtra::column_spec(2:8, width = "3cm") |>
+  kableExtra::kable_classic(full_width = F, html_font = "Calibri") |>
+  row_spec(11, extra_css = "border-bottom: 1px dashed;") |>
+  #kableExtra::save_kable(here::here(figsDir, glue::glue('summary_table_new_{unitAbbr}.png')))
+  save_kable_workaround(here::here(figsDir, glue::glue('summary_table_new_{unitAbbr}.png')))
+
+
+
+```
+# Summary Stats
+```{r}
+nFires <- nrow(gfEventData)
+nRx <- sum(rxData$nEvents)
+rxArea <- sum(rxData$rxBurnArea)
+highSevNum <- overallGraphicData |>
+  dplyr::filter(datNm == "highGoodFire", ) |>
+  dplyr::select('area') |>
+  dplyr::pull()
+lowerSevNum <- overallGraphicData |>
+  dplyr::filter(datNm == "lowerGoodFire", ) |>
+  dplyr::select('area') |>
+  dplyr::pull()
+totalWildfireNum <- overallGraphicData |>
+  dplyr::filter(datNm == "burnedForest", ) |>
+  dplyr::select('area') |>
+  dplyr::pull()
+lowerGoodOfTot <- lowerSevNum / totalWildfireNum * 100
+highGoodOfTot <- highSevNum / totalWildfireNum * 100
+allGoodOfTot <- (lowerSevNum + highSevNum) / totalWildfireNum * 100
+
+rxByFRG <- rxData |>
+  dplyr::group_by(FRGDescription) |>
+  dplyr::summarise(nEvents = sum(nEvents),
+                   rxBurnArea = sum(rxBurnArea)) |>
+  dplyr::ungroup()
+
+
+lowerSevGFRxCompare = ((lowerSevNum / rxArea) - 1) * 100
+allSevGFRxCompare = (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
+
+
+```
+

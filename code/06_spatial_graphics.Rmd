@@ -208,7 +208,8 @@ create.event.summary.plots <- function(eventDats, nm) {
 ggplot() +
   ggplot2::geom_point(data = eventDats, aes(x = areaHA, y = goodPercBurnedFor), color = "#dc0ab4ff", alpha = 0.5, stroke = NA) +
   ggplot2::labs(x = "Area", y = "Percentage of forest burned in good fire") +
-  ggplot2::theme_minimal()
+  ggplot2::theme_minimal() +
+  scale_x_log10()
   ggplot2::ggsave(filename = here::here(figsDir, glue::glue('event_summary_point_{nm}.png')), units = "in", width = 3, height = 3)
 }
 

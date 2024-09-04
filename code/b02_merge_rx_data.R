@@ -53,6 +53,7 @@ nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', '
   dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
 
 #Manipulate raw NFPORS
+unique(nfpors$TYPENAME)
 unique(nfpors$actualcompletionyear)
 unique(lubridate::year(as.Date(nfpors$ACTUALCOMPLETIONDATE)))
 #actualcompletionyear has a few errors; make new one from the good data

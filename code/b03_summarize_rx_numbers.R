@@ -30,11 +30,14 @@ create.rx.summary <- function(polys, grpAttribute) {
   rxSummary <- nfporsInterest |>
     sf::st_join(polys, join = sf::st_within) |>
     dplyr::group_by(!!rlang::sym(grpAttribute), ACTUALCOMPLETIONYEARNEW, FRGDescription) |>
-    dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA)) |>
+    dplyr::summarise(rxBurnHa = sum(TOTALACCOMPLISHMENT_HA),
+                     nEvents = n()) |>
     dplyr::rename(year = ACTUALCOMPLETIONYEARNEW) |>
     dplyr::filter(!is.na({{grpAttribute}})) |>
     sf::st_drop_geometry() |>
-    dplyr::mutate(rxBurnAc = rxBurnHa * 2.47105)
+    dplyr::mutate(rxBurnArea = rxBurnHa * 10000) |>
+    mutate(units = "m^2") |>
+    select(-rxBurnHa)
   
   rxSummary <- combos %>%
     dplyr::left_join(rxSummary, by = c('year', grpAttribute)) %>%

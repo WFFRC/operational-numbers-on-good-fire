@@ -13,7 +13,8 @@ library('here')
 
 summarizeName <- 'states'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
 driveFolder <- 'GEE_Exports'     # MAKE SURE THAT THIS IS THE GDRIVE FOLDER YOU ARE USING. 'GEE_Exports' is the default for the export script
-years <- seq(2010,2020)       # This shouldn't need to be changed
+earliestYear <- 2010
+latestYear <- 2020
 
 
 ##################################################
@@ -41,22 +42,23 @@ read.gf.csv.from.gdrive <- function(year, summarizeName) {
 
 # OPERATE ----
 
+years <- seq(earliestYear,latestYear)
+
 # Map file over all years in the set and write as local csv
 fullGFDataSet <- purrr::map(.x = years, .f = read.gf.csv.from.gdrive, summarizeName) |>
-  dplyr::bind_rows()
+  dplyr::bind_rows() |>
+  dplyr::select(-system.index, -.geo)
 
 
-readr::write_csv(fullGFDataSet, here::here('data', 'derived', paste0("gf_data_combined_", summarizeName, ".csv")))
+readr::write_csv(fullGFDataSet, here::here('data', 'derived', paste0("gf_data_combined_", summarizeName, "_", earliestYear, "_", latestYear, ".csv")))
 
 
 # Clean dataset and re-write as clean dataset
 
-cleanGFDataSet <- fullGFDataSet |>
-  dplyr::select(-system.index, -.geo)
 
 if(grepl('spark', summarizeName)) {
   if(!summarizeName == 'sparkEcoregions') {
-    cleanGFDataSet <- cleanGFDataSet |>
+    cleanGFDataSet <- fullGFDataSet |>
       dplyr::filter(SPARK != 'AK - Bristol Bay') |>
       dplyr::filter(SPARK != 'BC - Bulkley Morice')
   }
