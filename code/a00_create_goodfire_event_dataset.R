@@ -1,11 +1,133 @@
 
+# This script will create a set of polygons to use for the good fire project. It combines MTBS and combined wildland fire polygons
 
 library(tigris)
 library(httr)
 library(jsonlite)
+library(sf)
+library(tidyverse)
+
+
+
 
 
 # FUNCTIONS ----
+
+# Function to access MTBS conus polygons
+access.data.mtbs.conus <- function() {
+  mtbs <- glue::glue(
+    "/vsizip/vsicurl/",
+    "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/MTBS_Fire/data/composite_data/burned_area_extent_shapefile/mtbs_perimeter_data.zip",
+    "/mtbs_perims_DD.shp") |>
+  sf::st_read()
+  return(mtbs)
+}
+
+
+# Function to access Welty & Jeffries combined wildland fire polygons
+access.data.welty.jeffries <- function() {
+  #Write out the URL query
+  baseUrl <- "https://gis.usgs.gov/sciencebase3/rest/services/Catalog/61aa537dd34eb622f699df81/MapServer/0/query"
+  queryParams <- list(f = "geojson",
+                      where = "1=1",
+                      outFields = "*",
+                      returnGeometry = "true")
+  response <- httr::GET(url = baseUrl, query = queryParams)
+  
+  #Request data
+  welty <- get_all_from_arcgis_rest_api(baseUrl, queryParams, 1000)
+  return(welty)
+}
+
+t <- access.data.welty.jeffries()
+
+
+
+
+get_all_from_arcgis_rest_api <- function(base_url, query_params, maxRecord) {
+  # Initialize variables
+  total_features <- list()
+  offset <- 0
+  
+  repeat {
+    # Update the resultOffset parameter in query_params
+    query_params$resultOffset <- offset
+    
+    # Make the GET request using the base URL and query parameters
+    response <- GET(url = base_url, query = query_params)
+    
+    # Check if the request was successful
+    if (status_code(response) == 200) {
+      # Read the GeoJSON data directly into an sf object
+      data <- st_read(content(response, as = "text"), quiet = TRUE)
+      
+      # Append the data to the list of features
+      total_features <- append(total_features, list(data))
+      
+      # Break if the number of records fetched is less than the maxRecord, indicating the last page
+      if (nrow(data) < maxRecord) {
+        break
+      }
+      
+      # Increment the offset by the maximum number of records for the next page
+      offset <- offset + maxRecord
+    } else {
+      # Handle errors and provide meaningful messages
+      error_message <- content(response, "text", encoding = "UTF-8")
+      stop("Failed to fetch data: ", status_code(response), " - ", error_message)
+    }
+  }
+  
+  # Combine all pages into one sf object
+  all_data_sf <- do.call(rbind, total_features)
+  
+  return(all_data_sf)
+}
+
+
+
+
+
+
+
+
+#A function to get all of the data from ArcGIS REST API for a given request (i.e. avoiding request thresholds)
+# PARAMETERS
+# url :: a complete URL request query to an ArcGIS REST dataset
+# maxRecord :: the maximum records that can be returned from the API
+# Written with assistance from ChatGPT 4.0
+get.all.from.arcgis.rest.api <- function(url, maxRecord) {
+  # Initialize variables
+  total_features <- list()
+  offset <- 0
+  
+  repeat {
+    # Construct the URL with offset
+    paged_url <- paste0(url, "&resultOffset=", offset)
+    
+    # Fetch the data
+    response <- GET(paged_url)
+    
+    # Check if the request was successful
+    if (status_code(response) == 200) {
+      data <- sf::st_read(content(response, "text"), quiet = TRUE)
+      total_features <- append(total_features, list(data))  # Append data
+      
+      # Break if the data fetched is less than the max count, indicating the last page
+      if (nrow(data) < maxRecord) {
+        break
+      }
+      offset <- offset + maxRecord  # Increase offset for the next page
+    } else {
+      stop("Failed to fetch data: ", status_code(response))
+    }
+  }
+  
+  # Combine all pages into one sf object
+  all_data_sf <- do.call(rbind, total_features)
+  
+  return(all_data_sf)
+}
 
 
 
@@ -152,19 +274,21 @@ west <- tigris::states() |>
 welty <- sf::st_read(here::here('data', 'raw', 'welty_combined_wildland_fire_dataset', 'welty_combined_wildland_fire_perimeters.shp')) |>
   sf::st_transform(epsg)
 
+welty <- access.data.welty.jeffries()
+
+
+
+
+
+
+
+
+
 
 mtbsFile <- here::here('data', 'raw', 'mtbs_perims.gpkg')
 if(!file.exists(mtbsFile)) {
-  mtbsURL <- "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/MTBS_Fire/data/composite_data/burned_area_extent_shapefile/mtbs_perimeter_data.zip"
-  
-  mtbs <- glue::glue(
-    "/vsizip/vsicurl/", #magic remote connection
-    mtbsURL, #copied link to download location
-    "/mtbs_perims_DD.shp") |> #path inside zip file
-    sf::st_read()
-  
+  mtbs <- access.data.mtbs.conus()
   sf::st_write(mtbs, mtbsFile)
-  
 } else {
   mtbs <- sf::st_read(mtbsFile)
 }
