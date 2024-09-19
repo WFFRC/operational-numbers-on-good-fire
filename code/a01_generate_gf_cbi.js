@@ -27,12 +27,12 @@ var states = ee.FeatureCollection("TIGER/2018/States");
 //       NAME           DESCRIPTION
 //       any      year of fire
 
-var firesRaw = ee.FeatureCollection("users/tymc5571/goodfire_dataset_for_analysis_2010_2020");
+var firesRaw = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/goodfire_dataset_for_analysis_2010_2020");
 var startYear = 2010; //this is the earliest fire year in the dataset
 var endYear = 2020; //this is the latest fire year in the dataset
 
-// var firesRaw = ee.FeatureCollection("users/tymc5571/goodfire_dataset_for_analysis_1990_2020");
-// var startYear = 1990; //this is the earliest fire year in the dataset
+// var firesRaw = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/goodfire_dataset_for_analysis_1985_2020");
+// var startYear = 1985; //this is the earliest fire year in the dataset
 // var endYear = 2020; //this is the latest fire year in the dataset
 
 

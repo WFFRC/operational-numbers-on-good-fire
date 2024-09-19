@@ -10,6 +10,8 @@
 // -generates an annual conservative forest mask for the year before each fire
 // -reads in bias corrected cbi (CBI_bc) generated annually in the year of each fire by script 'a01_generate_gf_cbi'
 // -exports summaries of the data for the summarizing features imported in "Summarizing Features"
+// -exports fire event-level summaries
+// -exports a flattened CBI layer for the entire period for a given AOI for use in visualizations
 
 
 ////////////////
@@ -20,16 +22,17 @@
 var exportFolder = 'GEE_Exports';
 
 // The raw fire perimeters uploaded by the user
-var firesRaw = ee.FeatureCollection("users/tymc5571/goodfire_dataset_for_analysis_2010_2020");
+var firesRaw = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/goodfire_dataset_for_analysis_2010_2020");
+//var firesRaw = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/goodfire_dataset_for_analysis_1985_2020");
 print('fraw:', firesRaw.limit(10));
 
 var startYear = 2010; //this is the earliest fire year in the dataset
-//var startYear = 1990; //this is the earliest fire year in the dataset
+//var startYear = 1985; //this is the earliest fire year in the dataset
 var endYear = 2020; //this is the latest fire year in the dataset
 
 // The CBIbc output from the previous script
-var gfCBI = ee.Image("users/tymc5571/goodFire_all_cbi_bc_2010_2020"); // data from 01_generate_gf_cbi
-//var gfCBI = ee.Image("users/tymc5571/goodFire_all_cbi_bc_1990_2020"); // data from 01_generate_gf_cbi
+var gfCBI = ee.Image("projects/ee-tymc5571-goodfire/assets/goodFire_all_cbi_bc_2010_2020"); // data from 01_generate_gf_cbi
+//var gfCBI = ee.Image("projects/ee-tymc5571-goodfire/assets/goodFire_all_cbi_bc_1985_2020"); // data from 01_generate_gf_cbi
 
 
 // SUMMARIZING FEATURES - SET YOUR SUMMARIZING FEATURES HERE
@@ -38,20 +41,6 @@ var states = ee.FeatureCollection('TIGER/2018/States'); // US states feature col
 var summarizeFeatures = states.filter(ee.Filter.inList('NAME', ['Washington', 'Oregon', 'California', 'Idaho', 'Nevada', 'Montana',
   'Wyoming', 'Utah', 'Colorado', 'Arizona', 'New Mexico']));
 var summarizeName = 'states';
-
-
-// var sparkCounties = ee.FeatureCollection("users/tymc5571/spark_counties");
-// var sparkEcoregions = ee.FeatureCollection("users/tymc5571/spark_l4_ecoregions");
-// var sparkWatersheds = ee.FeatureCollection("users/tymc5571/spark_watersheds");
-
-// var summarizeFeatures = sparkCounties;
-// var summarizeName = "sparkCounties";
-
-// var summarizeFeatures = sparkEcoregions;
-// var summarizeName = "sparkEcoregions";
-
-// var summarizeFeatures = sparkWatersheds;
-// var summarizeName = "sparkWatersheds";
 
 
 
@@ -83,6 +72,12 @@ var westernStatesNames = [
 
 // Filter the feature collection to include only the 11 western states
 var westernStates = states.filter(ee.Filter.inList('NAME', westernStatesNames));
+
+
+
+//Flattened GF raster layer AOI for visualization
+var vizRasterAOIName = ['California'];
+var vizRasterAOI = states.filter(ee.Filter.inList('NAME', vizRasterAOIName));
 
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -254,92 +249,63 @@ Map.addLayer(cbiCollection.first(),    {min:0, max:3, palette:CBIpaletteclass}, 
 Map.addLayer(cbiCollection.mosaic(), {min:0, max:3, palette:CBIpaletteclass}, 'CBI all');
 
 
-// Output layers
+// Output layers to check
 Map.addLayer(allGF.first().select('lowerGoodFire'), {min: 0, max: 1, palette: ['white', 'springgreen']}, 'Lower Good Fire 2010');
-Map.addLayer(allGF.select('lowerGoodFire').mosaic(), {min: 0, max: 1, palette: ['white', 'springgreen']}, 'Lower Good Fire All');
-
 Map.addLayer(allGF.first().select('highGoodFire'), {min: 0, max: 1, palette: ['white', 'greenyellow']}, 'High Good Fire 2010');
-Map.addLayer(allGF.select('highGoodFire').mosaic(), {min: 0, max: 1, palette: ['white', 'greenyellow']}, 'High Good Fire All');
-
 Map.addLayer(allGF.first().select('lowerRegimeCbiHigh'), {min: 0, max: 1, palette: ['white', 'hotpink']}, 'Too Hot 2010');
 Map.addLayer(allGF.first().select('replaceRegimeCbiLow'), {min: 0, max: 1, palette: ['white', 'plum']}, 'Too Low 2010');
 
 
-
-/////////////////
-//// Export summaries
-/////////////////
-
-
-
-// //Feature attributes to export
-// var selectors = summarizeIdentifiers.cat(['lowerGoodFire', 
-//                                           'highGoodFire',
-//                                           'lowerRegimeCbiHigh',
-//                                           'replaceRegimeCbiLow',
-//                                           'lowerRegimeCbiUnburned',
-//                                           'replaceRegimeCbiUnburned',
-//                                           'cbiLower',
-//                                           'cbiHigh',
-//                                           'cbiAnyBurned',
-//                                           'cbiUnburned',
-//                                           'yearPriorForest',
-//                                           'totalArea',
-//                                           'year',
-//                                           'units']);
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+///////////     GENERATE & EXPORT FLATTENED IMAGE          ///////////////
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
 
 
+// Mosaic over years & check outputs
+var lgAllYears = allGF.select('lowerGoodFire').mosaic().gt(0).unmask(0);
+var hgfAllYears = allGF.select('highGoodFire').mosaic().gt(0).unmask(0);
+var tooLowAllYears = allGF.select('replaceRegimeCbiLow').mosaic().gt(0).unmask(0);
+var tooSevereAllYears = allGF.select('lowerRegimeCbiHigh').mosaic().gt(0).unmask(0);
+var notgfAllYears = tooLowAllYears.bitwiseOr(tooSevereAllYears);
+
+// Map.addLayer(lgAllYears, {min: 0, max: 1, palette: ['white', 'springgreen']}, 'Lower Good Fire All');
+// Map.addLayer(hgfAllYears, {min: 0, max: 1, palette: ['white', 'greenyellow']}, 'High Good Fire All');
+// Map.addLayer(tooLowAllYears, {min: 0, max: 1, palette: ['white', 'plum']}, 'too low AllYears');
+// Map.addLayer(tooSevereAllYears, {min: 0, max: 1, palette: ['white', 'hotpink']}, 'too severe Fire AllYears');
+// Map.addLayer(notgfAllYears, {min: 0, max: 1, palette: ['white', 'pink']}, 'Not Good Fire AllYears');
+
+//Create a single merged image and export for area of interest.
+// Non-good fire = 3
+// High-good fire = 2
+// Low-good fire = 1
+var notgfAllYears = notgfAllYears.where(notgfAllYears.eq(1), 3);
+var hgfAllYears = hgfAllYears.where(hgfAllYears.eq(1), 2);
+
+var allGFFlat = lgAllYears.max(hgfAllYears).max(notgfAllYears).selfMask();
+Map.addLayer(allGFFlat, {min: 0, max: 3, palette: ['white', 'black']}, 'GF Flat');
 
 
+Export.image.toDrive({
+  image: allGFFlat,
+  description: 'gf_data_raster_' + startYear + '_' + endYear + '_' + vizRasterAOIName,
+  folder: exportFolder,
+  fileNamePrefix: 'gf_data_raster_' + startYear + '_' + endYear + '_' + vizRasterAOIName,
+  region: vizRasterAOI,
+  scale: 30,
+  crs: "EPSG:5070",
+  maxPixels: 1e13
+});
 
 
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+///////////     GENERATE & EXPORT ANNUAL SUMMARIES          ///////////////
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
 
 
-// var runYear = function(year) {
-//     var img = ee.Image(allGF.filter(ee.Filter.eq('year', year)).first());
-
-//     // Reduction options: forested area
-//     var mappedReduction = summarizeFeatures.map(function(feature) {
-//       var datFeature = feature.set(img.reduceRegion({
-//         reducer: ee.Reducer.sum(),
-//         geometry: feature.geometry(),
-//         scale: 30,
-//         tileScale: 16,
-//         maxPixels: 1e13,
-//       }));
-      
-//       return datFeature.set('year', year)
-//                       .set('units', 'm^2')
-//                       .setGeometry(null);
-//     });
-
-//     return(mappedReduction.flatten());
-// };
-
-// var allDats = ee.FeatureCollection(uniqueYears.map(runYear)
-//                                               .flatten());
-
-
-// // Export the combined table
-// Export.table.toDrive({
-//   collection: allDats,
-//   description: 'combined_gf_data_' + summarizeName,
-//   fileNamePrefix: 'combined_gf_data_' + summarizeName,
-//   folder: 'GEE_Exports',
-//   fileFormat: 'CSV',sl
-// });
-
-
-
-
-
-
-
-
-
-
-
-// DEPRECATED
 // Iterate over each year, process the data, and set up the export
 for (var year = startYear; year <= endYear; year++) {
   (function(year) { // Start  Immediately Invoked Function Expression (IIFE) to capture the current year
@@ -379,10 +345,12 @@ for (var year = startYear; year <= endYear; year++) {
 
 
 
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+///////////     GENERATE FIRE EVENT LEVEL DATA & EXPORT          ///////////////
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
 
-// FIRE FEATURE LEVEL
-
-//print('test', ee.Number(firesRaw.first().get('Fire_Year')).format().slice(0, -2))
 
 var gfReduceFeature = function(f) {
   
@@ -412,4 +380,5 @@ Export.table.toDrive({
   folder: exportFolder,
   fileFormat: 'CSV'
 });
+
 

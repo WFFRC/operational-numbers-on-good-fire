@@ -2,15 +2,22 @@
 //This code is meant to be run on Google Earth Engine
 //code link: https://code.earthengine.google.com/0279a285caa496ae638011c358c75f08
 
-//Before running, load output from script 00b_prep_rx_for_gee.R to GEE
+
+//This code adds land cover and fire regime data to a set of point features input by the user
 
 
-/////////////// MANAGE DATA ///////////////
 
-var lcpri = ee.ImageCollection("projects/sat-io/open-datasets/LCMAP/LCPRI");
-var lcms = ee.ImageCollection("USFS/GTAC/LCMS/v2022-8"),
-    nfpors = ee.FeatureCollection("users/tymc5571/West_NFPORS_2010_2021"),
+/////////////// IMPORT & MANAGE DATA ///////////////
+
+// USER-INPUT POINT FEATURES
+var nfpors = ee.FeatureCollection("projects/ee-tymc5571-goodfire/assets/West_NFPORS_2010_2021");
+
+// Load fire regime and land cover datasets
+var lcpri = ee.ImageCollection("projects/sat-io/open-datasets/LCMAP/LCPRI"),
+    lcms = ee.ImageCollection("USFS/GTAC/LCMS/v2022-8"),
     frg = ee.ImageCollection("LANDFIRE/Fire/FRG/v1_2_0");
+    
+    
 
 print("NFPORS", nfpors.size(), nfpors.limit(50));
 
@@ -33,9 +40,7 @@ var frcReplace = frcRcl.eq(2).rename('frcReplace');
 //Map.addLayer(frcRcl);
 
 
-
 ///////////////////// EXTRACTION FUNCTIONS /////////////////
-
 
 // A function to extract the values from an imageCollection with each image as a year.
 // To the input feature collection by MEAN
@@ -103,31 +108,15 @@ var addMeanImageValues = function(image, collection, nm) {
 };
 
 
-
-
 ///////////////// APPLY THE FUNCTIONS & CHECK OUTPUTS ////////////////
-
-var nfporsWithLCMS = extractMeanCollectionValuesNamedByYear(nfpors, lcmsInterest, "LCMS");
-nfporsWithLCMS = addMeanImageValues(frcRcl, nfporsWithLCMS, "FRG");
-print('with lcms', nfporsWithLCMS.size(), nfporsWithLCMS.limit(50));
-
-
-///// CONSERVATIVE VERSION
 
 var nfporsWithBoth = extractMeanCollectionValuesNamedByYear(nfpors, lcmsInterest, "LandCover_LCMS");
 nfporsWithBoth = extractMeanCollectionValuesNamedByYear(nfporsWithBoth, lcpriInterest, "LandCover_LCMAP");
 nfporsWithBoth = addMeanImageValues(frcRcl, nfporsWithBoth, "FRG");
-print('cons', nfporsWithBoth.size(), nfporsWithBoth.limit(50));
+print('conservative forest FRG points', nfporsWithBoth.size(), nfporsWithBoth.limit(50));
 
 
 ///////////////////// Export /////////////////////
-
-Export.table.toDrive({
-  collection: nfporsWithLCMS,
-  description: "gee_nfpors_lcms",
-  folder: "GEE_Exports",
-  fileFormat: "CSV"
-});
 
 Export.table.toDrive({
   collection: nfporsWithBoth,
@@ -136,120 +125,3 @@ Export.table.toDrive({
   fileFormat: "CSV"
 });
 
-
-
-////////////////// OLD FUNCTIONS //////////////////
-
-// OLD VERSION THAT DOES IT ALL AT ONCE - FASTER TO MAP OVER FEATURE COLLECTION
-// var addMeanImageValues = function(image, collection, nm) {
-//   var properties = image.reduceRegions({
-//     collection: collection,
-//     reducer: ee.Reducer.mean().setOutputs([nm]),
-//     scale: 30,
-//     crs:image.projection()
-//     });
-//   return(properties);
-// });
-
-
-
-// OLD WORKING FUNCTION, but this outputs a 'long' featurecollection with one feature for each image in the imagecollection
-// // A function to extract the values from an imageCollection with each image as a year.
-// // To the input feature collection by MEAN
-// // And include the date of the image extracted
-// // (Should be used by mapping over the collection)
-// // PARAMETERS
-// // collection: the featurecollection
-// // nm: the name of the output property, as a string (e.g. "LandCover")
-// var extractMeanImageValuesPlusYear = function(collection, nm) {
-//   var reduceSingleFeature = function(image) {
-//     return function(feature) {
-//       var imageDate = image.date().format('YYYY'); // Get the image year
-
-//       var reducedValue = image.reduceRegion({
-//         reducer: ee.Reducer.mean(),
-//         geometry: feature.geometry(),
-//         scale: 30,
-//         crs: image.projection() // Match the projection of the image
-//       });
-
-//       // Retrieve the result using the known band name, assuming single-band images
-//       var meanValue = reducedValue.values().get(0);
-
-//       // Construct year string and convert it to a regular string
-//       var yrNm = ee.String(nm).cat("_Year").getInfo();
-
-//       // Create a dictionary with the custom name and add the year to the feature
-//       var output = {};
-//       output[nm] = meanValue;
-//       output[yrNm] = imageDate;
-
-//       return feature.set(output);
-//     };
-//   };
-
-//   // Apply the function to each feature in the collection for each image
-//   var wrap = function(image) {
-//     image = ee.Image(image); // Ensure image is an ee.Image object
-//     var featureReducer = reduceSingleFeature(image);
-//     return collection.map(featureReducer);
-//   };
-
-//   return wrap;
-// };
-
-// OLD VERSION THAT DOES IT ALL AT ONCE - FASTER TO MAP OVER FEATURE COLLECTION
-// var extractMeanImageValuesPlusYear = function(collection, nm) {
-//   var wrap = function(image) {
-//     var imageDate = image.date().format('YYYY'); // Get the image year
-//     var properties = image.reduceRegions({
-//       collection: collection,
-//       reducer: ee.Reducer.mean().setOutputs([nm]), // Reduce and set output name
-//       scale: 30, 
-//       crs: image.projection() // Match the projection of the image
-//     });
-
-//     // Construct year string
-//     var yrNm = ee.String(nm).cat("_Year");
-
-//     // Rename the properties to include the image date as a property
-//     var addedProperties = properties.map(function(feature) {
-//       return feature.set(yrNm, imageDate);
-//     });
-//     return addedProperties;
-//   };
-//   return wrap;
-// };
-
-
-//IMPROVED BUT OLD VERSION THAT MAPS OVER COLLECTION, BUT ISN'T NAMING RIGHT. SETOUTPUTS isn't working, uses bands of image?
-// var extractMeanImageValuesPlusYear = function(collection, nm) {
-//   var reduceSingleFeature = function(image) {
-    
-//     return function(feature) {
-//       var imageDate = image.date().format('YYYY'); // Get the image year
-
-//       var reducedValue = image.reduceRegion({
-//         reducer: ee.Reducer.mean().setOutputs([nm]), // Reduce and set output name
-//         geometry: feature.geometry(),
-//         scale: 30,
-//         crs: image.projection() // Match the projection of the image
-//       });
-
-//       // Construct year string
-//       var yrNm = ee.String(nm).cat("_Year");
-
-//       // Add the reduced value and year to the feature
-//       return feature.set(reducedValue).set(yrNm, imageDate);
-//     };
-//   };
-
-//   // Apply the function to each feature in the collection for each image
-//   var wrap = function(image) {
-//     image = ee.Image(image); // Ensure image is an ee.Image object
-//     var featureReducer = reduceSingleFeature(image);
-//     return collection.map(featureReducer);
-//   };
-
-//   return wrap;
-// };

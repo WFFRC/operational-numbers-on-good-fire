@@ -1,3 +1,4 @@
+UPDATE THESE: 
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip) [![license](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://opensource.org/licenses/GPL-3.0) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4648947.svg)](https://doi.org/10.5281/zenodo.4648947)
 ![graphical abstract showing data layers integrated and software used in workflow](/images/gf_overview.jpg)
 
@@ -35,11 +36,9 @@ A list and description of all scripts is included below.
 ### Prescribed burn event manipulation workflow
 - 00b_prep_rx_for_gee.R : This script prepares NFPORS RX data for use in GEE
 - 01b_add_gee_data_to_rx.js : This GEE script adds Fire Regime Group and landcover data to the prescribed burn event data
-- 02b_merge_rx_data.R : This script pulls in outputs from GEE and merges the new data with the raw spatial NFPORS data. It also cleans the data.
-- 03b_summarize_rx_data : This script summarizes rx data at a given summarizing polygon and annual level.
+- 02b_merge_summarize_rx_data.R : This script pulls in outputs from GEE and merges the new data with the raw spatial NFPORS data. It also cleans the data and then writes out summaries.
 
 ### Core analysis workflow
-- 00_create_plots.qmd : This quarto document creates and exports all non-spatial figures for the publication
-- 01_create_spatial_graphics.qmd : This quarto document creates and exports all spatial figures for the publication
+- 00_create_plots.qmd : This quarto document creates and exports all figures for the publication
 
 
