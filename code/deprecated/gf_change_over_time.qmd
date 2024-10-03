@@ -1,0 +1,212 @@
+
+---
+title: "Good fire change over time"
+author: Tyler L. McIntosh
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    html-math-method: katex
+    css: styles.css
+    toc: true
+    toc-depth: 1
+    toc-title: Contents
+    toc-location: right
+    code-fold: true
+    code-summary: "Show the code"
+---
+
+# Overview
+
+This script analyzes change in good fire over time from 1986 - 2020 (35 years), finding that [trends vary by state](#geographic), but, overall, there does appear to be a [closing window for good fire](#takeaways)
+
+_Code associated with this workflow is available in the GitHub repo [TylerLMcIntosh/a-number-on-good-fire](https://github.com/TylerLMcIntosh/a-number-on-good-fire). The code leverages functions from a personal function utilities package, "tlmr", available on GitHub at [TylerLMcIntosh/tlm-r-utility](https://github.com/TylerLMcIntosh/tlm-r-utility)._
+
+Setup code:
+```{r setupchunk}
+#| echo: true
+#| message: false
+#| warning: false
+#| results: 'hide'
+
+rm(list=ls()) #Ensure empty workspace if running from beginning
+
+
+if (!requireNamespace("tlmr", quietly = TRUE)) {
+  if (!requireNamespace("devtools", quietly = TRUE)) {
+    install.packages("devtools")  # Install 'devtools' if it's not available
+  }
+  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
+}
+library(tlmr)
+tlmr::install_and_load_packages(c("dplyr",
+                                  "rmarkdown",
+                                  "purrr",
+                                  "here",
+                                  "quarto",
+                                  "rlang",
+                                  "mblm",
+                                  "tmap",
+                                  "performance",
+                                  "gvlma",
+                                  "car",
+                                  "lmtest",
+                                  "olsrr"))
+
+dats <- readr::read_csv(here::here('data', 'derived', paste0("gf_data_combined_states_", 1986, "_", 2020, ".csv")))
+
+annual <- dats |>
+  dplyr::relocate(yearPriorForest, .after = totalArea) |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(dplyr::across(cbiAnyBurned:yearPriorForest, sum)) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(lowgf_perc_all_burned = 100 * (lowerGoodFire / cbiAnyBurned),
+                highgf_perc_all_burned = 100 * (highGoodFire / cbiAnyBurned),
+                all_good_fire = highGoodFire + lowerGoodFire,
+                allgf_perc_all_burned = 100 * (all_good_fire / cbiAnyBurned))
+
+state_annual <- dats |>
+  dplyr::relocate(yearPriorForest, .after = totalArea) |>
+  dplyr::group_by(year, NAME) |>
+  dplyr::summarise(dplyr::across(cbiAnyBurned:yearPriorForest, sum)) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(lowgf_perc_all_burned = 100 * (lowerGoodFire / cbiAnyBurned),
+                highgf_perc_all_burned = 100 * (highGoodFire / cbiAnyBurned),
+                all_good_fire = highGoodFire + lowerGoodFire,
+                allgf_perc_all_burned = 100 * (all_good_fire / cbiAnyBurned))
+
+
+```
+
+# Trends in good fire across the entire western U.S. {#section-1}
+
+First we check basic assumptions about the dataset that we are using, both raw and proportions. We find that there is heteroscedasticity in our data but no autocorrelations or outliers. Thiel-sen estimators will be best to use with this data as they are robust to heteroscedasticity.
+
+Outputs have been hidden to streamline the report.
+
+```{r lm-tests}
+#| results: 'hide'
+
+# create formulas
+all_formula <- as.formula("cbiAnyBurned ~ year")
+all_gf_formula <- as.formula("all_good_fire ~ year")
+lgf_perc_formula <- as.formula("lowgf_perc_all_burned ~ year")
+hgf_perc_formula <- as.formula("highgf_perc_all_burned ~ year")
+agf_perc_formula <- as.formula("allgf_perc_all_burned ~ year")
+
+formulas <- list(all_formula, all_gf_formula, lgf_perc_formula, hgf_perc_formula, agf_perc_formula)
+
+# A function to perform a set of simple linear model checks
+perform_simple_lm_checks <- function(lm, visual = FALSE) {
+  perform2 <- gvlma::gvlma(lm)
+  summary(perform2)
+  if(visual) {print(performance::check_model(lm))}
+  print(performance::check_model(lm)$OUTLIERS)
+  performance::check_autocorrelation(lm)
+}
+
+# Use perform_simple_lm_checks
+purrr::walk(.x = formulas, ~ perform_simple_lm_checks(lm(.x, data = annual), visual = FALSE))
+
+
+```
+
+Using Thiel-sen estimators, we find that, across the west as a whole, good fire is increasing along with all fire, but all good fire as a ratio of all forest fire is shifting by decreasing by ~0.6% per year.
+
+```{r create-initial-graphics}
+#| fig.show: "hold"
+
+# Raw siegel repeated medians estimators
+p1 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = cbiAnyBurned, repeated = FALSE)
+
+p2 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = all_good_fire, repeated = FALSE)
+
+# Perc siegel repeated medians estimators
+p3 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = lowgf_perc_all_burned, repeated = FALSE)
+p4 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = highgf_perc_all_burned, repeated = FALSE)
+p5 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = allgf_perc_all_burned, repeated = FALSE)
+
+gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow = 3, ncol = 2)
+
+
+
+```
+# How do trends vary by state? {#section-2}
+
+```{r by-state}
+tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
+  dplyr::arrange(dplyr::desc(coefficient))
+
+```
+
+# Geographic visualization {#geographic}
+
+We find that trend coefficients vary greatly by state.
+To understand these spatial patterns more easily, we can turn the estimator coefficients into geographic visualizations.
+
+```{r geographic}
+#| fig.show: "hold"
+
+usa <- tigris::states(progress_bar = FALSE)
+west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),] 
+
+west_allgf_perc_all_burned <- west |>
+  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE),
+                   by = dplyr::join_by(NAME == group))
+west_highgf_perc_all_burned <- west |>
+  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = highgf_perc_all_burned, group = NAME, repeated = FALSE),
+                   by = dplyr::join_by(NAME == group))
+west_lowgf_perc_all_burned <- west |>
+  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = lowgf_perc_all_burned, group = NAME, repeated = FALSE),
+                   by = dplyr::join_by(NAME == group))
+
+create_west_graphic <- function(dats, title) {
+  g <- tmap::tm_shape(dats) +
+        tm_polygons("coefficient",
+                    midpoint = 0,
+                    title = "Siegel \ncoefficient \nin %/year") +
+        tm_layout(title = title,
+                  inner.margins = c(0.1, 0.1, 0.2, 0.1),
+                  frame = FALSE,
+                  legend.position = c("left", "bottom")) +
+        tm_credits("Data derived from Balch et al")
+  return(g)
+}
+
+viz_all_gf <- create_west_graphic(west_allgf_perc_all_burned, "Trend in All Ecologically Beneficial Fire as a Percentage \nof All Forest Fire from 1986-2020")
+viz_all_gf
+create_west_graphic(west_highgf_perc_all_burned, "Trend in High Ecologically Beneficial Fire as a Percentage \nof All Forest Fire from 1986-2020")
+create_west_graphic(west_lowgf_perc_all_burned, "Trend in Lower Ecologically Beneficial Fire as a Percentage \nof All Forest Fire from 1986-2020")
+
+```
+
+# Takeaways {#takeaways}
+We do, indeed, see that there may be a closing window for good fire across the western U.S.
+
+```{r keyfig}
+viz_all_gf
+```
+
+When considering all good fire, a number of our driest states have seen decreases over time in the amount of good fire when compared to the total forested area burning. Only 4 states (WA, MT, WY, AZ) have seen increasing trends in good fire as a percentage of total area burned over time.
+
+Although changes on the scale of -0.3% / year seem small, over the course of the 35 years combined, this small change adds up to approximately a change of 10 percentage points.
+
+Total percentage point changes over the 35 years for each state are below (rounded to nearest integer) 
+
+```{r takeaway}
+tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
+  dplyr::arrange(dplyr::desc(coefficient)) |>
+  dplyr::mutate(totalPercentagePointChange = round(35 * coefficient)) |>
+  dplyr::select(group, totalPercentagePointChange)
+
+```
+
+
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" >Session Information</button><div id="collapseOne" class="accordion-collapse collapse"><div>
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+</div></div>
+

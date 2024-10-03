@@ -13,12 +13,28 @@ Last updated: 9/19/24
 rm(list=ls()) #Ensure empty workspace if running from beginning
 
 
-
-###### USER FILLED OUT PARAMETERS #########
+##################################
+###### USER FILLED OUT PARAMETERS ##################################
 driveFolder <- "GEE_Exports" #The drive folder you exported data to from GEE
 operatingUnits <- "Hectares" #either 'Hectares' or 'Acres'
 rasterForVizF <- "gf_data_raster_2010_2020_California.tif" # The name of the visualization raster in GDrive that you want to use for case study pull out
 caseStudyID <- "CA3966012280920200817"
+
+# Color scheme
+rxCol <- col2hex("darkblue")
+gFCol <- "#dc0ab4ff"
+totCol <- col2hex("goldenrod2")
+gfHsCol <- '#FA6EE2' #"#FA97E7"
+boundaryCol <- "gray50"
+bgNeutralCol <- "gray95"
+
+#gfcol
+"#dc0ab4ff" # original
+"#E810C0" #225, 15, 185, 91
+"#F516CC"#230, 20, 190, 96
+
+#gfhscol
+
 
 
 
@@ -210,10 +226,6 @@ allSummary <- allSummary |>
 ```{r}
 
 #Set graphic parameters
-rxCol <- col2hex("darkblue")
-gFCol <- "#dc0ab4ff"
-totCol <- col2hex("goldenrod2")
-gfHsCol <- '#FA6EE2' #"#FA97E7"
 plotColors <- c(rxCol, gfHsCol, gFCol, totCol)
 plotLabels <- c("Prescribed Burns", "High Severity Good Wildfire", "Lower Severity Good Wildfire", "Total Wildfire")
 
@@ -486,7 +498,7 @@ gfSpatialForestOnly <- gfSpatial |>
 
 
 #Pull in state data as context
-usa <- tigris::states() |>
+usa <- tigris::states(progress_bar = FALSE) |>
   sf::st_transform(sf::st_crs(epsg))
 west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),] 
 
@@ -500,11 +512,9 @@ west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "C
 
 # Create a leaflet map to get accurate (geographically meaningful) size of NFPORS points
 # Since leaflet does not export easily for static graphics, the information from this has been visually used
+
+
 # to adjust the GGPLOT2 final outputs
-goodFCol = "#dc0ab4ff"
-lowGoodFCol = "gray50"
-gfBCol = "transparent"
-rxCol = "goldenrod1"
 rxBCol = "transparent"
 transparency = 0.75
 strk = 0
@@ -526,7 +536,7 @@ mapview::mapview(x)
 
 m <- leaflet::leaflet() %>%
   leaflet::addPolygons(data = west, fillOpacity = 0.8, fillColor = "white", color = "#444444") %>%
-  leaflet::addPolygons(data = gfSpatialForestOnly, fillColor = goodFCol, fillOpacity = 0.8, color = NA) %>%
+  leaflet::addPolygons(data = gfSpatialForestOnly, fillColor = gFCol, fillOpacity = 0.8, color = NA) %>%
   leaflet::addCircles(data = rxSpatial2, lng = ~long, lat = ~lat, radius = ~radius, fillColor = rxCol, color = rxBCol, opacity = transparency, weight = strk, fillOpacity = transparency)
 
 # Display the map
@@ -553,7 +563,7 @@ create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transpare
     #ggplot2::labs(title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn", fill = "Percentage of \ngood forest fire \nwithin perimeter")  +
     ggplot2::labs(
       #title = "Good fire & Rx Burns in the Western US (rx on top, perimeters) \n Perimeters filtered to >10% forest before burn",
-      fill = "Percentage of \nforest within \nperimeter \nburned by \ngood fire")  +
+      fill = "Percentage \nof forest \nwithin \nperimeter \nburned by \ngood fire")  +
     theme_void() +
     theme(plot.background = element_rect(fill = "transparent", color = NA),
           panel.border = element_blank(),
@@ -574,33 +584,29 @@ create.plots <- function(goodFCol, lowGoodFCol, gfBCol, rxCol, rxBCol, transpare
 }
 
 
-
-
+# Run function
 create.plots(
-  goodFCol = "#dc0ab4ff",
-  lowGoodFCol = "goldenrod2",
+  goodFCol = gFCol,
+  lowGoodFCol = totCol,
   gfBCol = "transparent",
-  rxCol = "darkblue",
+  rxCol = rxCol,
   rxBCol = "transparent",
   transparency = 1,
   strk = 0,
   rngMin = 0.1,
   rngMax = 2.65, #tested until visual comparison of bubbles to that from leaflet is as similar as possible
   pch = 21,
-  bgfill = "gray95",
-  statecol = "gray50"
+  bgfill = bgNeutralCol,
+  statecol = boundaryCol
 )
 
 
 
-#Get hex ids for future use
-tlmr::col2hex("goldenrod2")
-tlmr::col2hex("darkblue")
-tlmr::col2hex("gray95")
-tlmr::col2hex("gray50")
-
-
-
+#Get hex ids for future use in associated visualizations
+tlmr::col2hex(totCol)
+tlmr::col2hex(rxCol)
+tlmr::col2hex(bgNeutralCol)
+tlmr::col2hex(boundaryCol)
 
 
 ```
@@ -634,25 +640,27 @@ caseStudyStateR <- rasterForViz |>
   terra::crop(caseStudyState, mask = TRUE, snap = "out") |>
   terra::aggregate(fact = 10, fun = "modal")
 
+
+
 # Create visualizations
 #case study fire
 caseStudyEventFig <- tmap::tm_shape(caseStudyR, raster.downsample = FALSE) +
-  tm_raster(palette = c("gray95", "#dc0ab4ff", "#FA6EE2", "goldenrod2")) +
+  tm_raster(palette = c(bgNeutralCol, gFCol, gfHsCol, totCol)) +
   tmap::tm_shape(caseStudyBound) +
-  tmap::tm_borders(col = 'gray50', lwd = 1) +
+  tmap::tm_borders(col = boundaryCol, lwd = 1) +
   tmap::tm_layout(legend.show = FALSE,
                   inner.margins = c(0.1, 0.02, 0.02, 0.02),
                   frame = FALSE) +
   tmap::tm_scale_bar(width = 0.5,
                      position = c("right", "bottom"),
-                     color.dark = "gray50",
+                     color.dark = boundaryCol,
                      text.size = 1.2)
 tmap::tmap_save(caseStudyEventFig,
                 here::here(figsDir, "case_study_fig_event.png"))
 
 #case study state
 caseStudyStateFig <- tmap::tm_shape(caseStudyStateR, raster.downsample = FALSE) +
-  tm_raster(palette = c("gray95", "#dc0ab4ff", "#FA6EE2", "goldenrod2")) +
+  tm_raster(palette = c(bgNeutralCol, gFCol, gfHsCol, totCol)) +
   tmap::tm_shape(caseStudyState) +
   tmap::tm_borders(col = 'gray50', lwd = 2) +
   tmap::tm_shape(caseStudyBound) +

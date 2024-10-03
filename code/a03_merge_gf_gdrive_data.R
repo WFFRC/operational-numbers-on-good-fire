@@ -22,7 +22,6 @@ tlmr::install_and_load_packages(c("googledrive",
 summarizeName <- 'states'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
 driveFolder <- 'GEE_Exports'     # MAKE SURE THAT THIS IS THE GDRIVE FOLDER YOU ARE USING. 'GEE_Exports' is the default for the export script
 earliestYear <- 2010
-#earliestYear <- 1990
 latestYear <- 2020
 
 
@@ -98,29 +97,28 @@ cleanGFDataSet <- cleanGFDataSet |>
   dplyr::relocate(year, .before = TotalPolygonAreaAcres) |>
   dplyr::mutate(TotalGoodFireAcres = HighSeverityGoodFireAcres + LowerSeverityGoodFireAcres)
 
-readr::write_csv(cleanGFDataSet, here::here('data', 'derived', paste0("clean_gf_data_combined_", summarizeName, "_", earliestYear, "_", latestYear, ".csv")))
+readr::write_csv(cleanGFDataSet, here::here('data', 'derived', paste0("clean_gf_data_combined_", summarizeName, ".csv")))
 
 
 
 # Manage GF events ----
 
 #GF event data from GDrive
-gfEventDataFl <- here::here('data', 'derived', paste0('gf_fire_events_', earliestYear, '_', latestYear, '.csv'))
+gfEventDataFl <- here::here('data', 'derived', 'gf_fire_events_2010_2020.csv')
 if(file.exists(gfEventDataFl)) {
   gfEventData <- readr::read_csv(gfEventDataFl)
 } else {
-  gfEventData <- tlmr::read_csv_from_gdrive(paste0("~/", driveFolder, paste0('/gf_data_fire_events_', earliestYear, '_', latestYear, '.csv'))) #from GEE
+  gfEventData <- tlmr::read_csv_from_gdrive(paste0("~/", driveFolder, "/gf_data_fire_events_2010_2020.csv")) #from GEE
   readr::write_csv(gfEventData, gfEventDataFl)
 }
 
 # Raw GF events originally created
-goodfireEventDatabase <- sf::st_read(here::here("data", "derived", paste0('goodfire_dataset_for_analysis_', earliestYear, '_', latestYear, '.gpkg'))) |>
+goodfireEventDatabase <- sf::st_read(here::here("data", "derived", "goodfire_dataset_for_analysis_2010_2020.gpkg")) |>
   sf::st_transform(sf::st_crs("EPSG:5070"))
 
 # Join the data and export
 
 allGFDats <- goodfireEventDatabase |>
-  dplyr::left_join(gfEventData |>
-                     dplyr::select(-`.geo`, -`system.index`))
-sf::st_write(allGFDats, here::here("data", "derived", paste0('merged_goodfire_final_', earliestYear, '_', latestYear, '.gpkg')), append = FALSE)
+  dplyr::left_join(gfEventData, by = "DatasetID")
+sf::st_write(allGFDats, here::here("data", "derived", "merged_goodfire_final.gpkg"))
 
