@@ -55,4 +55,8 @@ figs/*
 docs/*
 manuscript/*
 
+#RENV
+renv/library/
+renv/staging/
+
 
