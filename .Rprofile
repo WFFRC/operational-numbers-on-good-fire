@@ -10,7 +10,7 @@ if (!requireNamespace("renv", quietly = TRUE)) {
 }
 
 #Restore pak to use for faster package installation
-renv::restore(packages = "pak")
+renv::restore(packages = "pak", prompt = FALSE)
 
 # Enable pak for faster installations with renv
 options(renv.config.pak.enabled = TRUE)
