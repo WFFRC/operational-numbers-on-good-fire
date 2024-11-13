@@ -1,23 +1,22 @@
 
 # This script will create a set of polygons to use for the good fire project. It combines MTBS and combined wildland fire polygons
+# Tyler L. McIntosh 2024
 
 rm(list = ls())
 
-#This code section loads a personal utilities package (tlmr), and then uses it for package management
-if (!requireNamespace("tlmr", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")  # Install 'devtools' if it's not available
-  }
-  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
 }
-library(tlmr)
-tlmr::install_and_load_packages(c("tigris",
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("tigris",
                                   "tictoc",
                                   "httr",
                                   "jsonlite",
                                   "sf",
                                   "tidyverse"))
-
 
 # FUNCTIONS ----
 
@@ -68,7 +67,7 @@ create_combined_event_set <- function(earliestYear, latestYear) {
   flNm <- paste("goodfire_dataset_for_analysis", earliestYear, latestYear, sep = "_")
   
   sf::st_write(allFiresInterest, here::here(derivedDatDir, paste0(flNm, ".gpkg")), append = FALSE)
-  tlmr::st_write_shp(shp = allFiresInterest,
+  st_write_shp(shp = allFiresInterest,
                location = here::here('data', 'derived'),
                filename = flNm,
                zip_only = TRUE,
@@ -132,7 +131,7 @@ welty <- sf::st_read(here::here('data', 'raw', 'welty_combined_wildland_fire_dat
 #Access MTBS dataset
 mtbsFile <- here::here('data', 'raw', 'mtbs_perims.gpkg')
 if(!file.exists(mtbsFile)) {
-  mtbs <- tlmr::access_data_mtbs_conus()
+  mtbs <- access_data_mtbs_conus()
   sf::st_write(mtbs, mtbsFile)
 } else {
   mtbs <- sf::st_read(mtbsFile)

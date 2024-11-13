@@ -20,7 +20,7 @@ format:
 
 This script analyzes change in good fire over time from 1986 - 2020 (35 years), finding that [trends vary by state](#geographic), but, overall, there does appear to be a [closing window for good fire](#takeaways)
 
-_Code associated with this workflow is available in the GitHub repo [TylerLMcIntosh/a-number-on-good-fire](https://github.com/TylerLMcIntosh/a-number-on-good-fire). The code leverages functions from a personal function utilities package, "tlmr", available on GitHub at [TylerLMcIntosh/tlm-r-utility](https://github.com/TylerLMcIntosh/tlm-r-utility)._
+_Code associated with this workflow is available in the GitHub repo [TylerLMcIntosh/a-number-on-good-fire](https://github.com/TylerLMcIntosh/a-number-on-good-fire).
 
 Setup code:
 ```{r setupchunk}
@@ -31,15 +31,14 @@ Setup code:
 
 rm(list=ls()) #Ensure empty workspace if running from beginning
 
-
-if (!requireNamespace("tlmr", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")  # Install 'devtools' if it's not available
-  }
-  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
 }
-library(tlmr)
-tlmr::install_and_load_packages(c("dplyr",
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("dplyr",
                                   "rmarkdown",
                                   "purrr",
                                   "here",
@@ -117,14 +116,14 @@ Using Thiel-sen estimators, we find that, across the west as a whole, good fire 
 #| fig.show: "hold"
 
 # Raw siegel repeated medians estimators
-p1 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = cbiAnyBurned, repeated = FALSE)
+p1 <- mblm_fit_estimator_and_visualize(dats = annual, x = year, y = cbiAnyBurned, repeated = FALSE)
 
-p2 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = all_good_fire, repeated = FALSE)
+p2 <- mblm_fit_estimator_and_visualize(dats = annual, x = year, y = all_good_fire, repeated = FALSE)
 
 # Perc siegel repeated medians estimators
-p3 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = lowgf_perc_all_burned, repeated = FALSE)
-p4 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = highgf_perc_all_burned, repeated = FALSE)
-p5 <- tlmr::mblm_fit_estimator_and_visualize(dats = annual, x = year, y = allgf_perc_all_burned, repeated = FALSE)
+p3 <- mblm_fit_estimator_and_visualize(dats = annual, x = year, y = lowgf_perc_all_burned, repeated = FALSE)
+p4 <- mblm_fit_estimator_and_visualize(dats = annual, x = year, y = highgf_perc_all_burned, repeated = FALSE)
+p5 <- mblm_fit_estimator_and_visualize(dats = annual, x = year, y = allgf_perc_all_burned, repeated = FALSE)
 
 gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow = 3, ncol = 2)
 
@@ -134,7 +133,7 @@ gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow = 3, ncol = 2)
 # How do trends vary by state? {#section-2}
 
 ```{r by-state}
-tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
+mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
   dplyr::arrange(dplyr::desc(coefficient))
 
 ```
@@ -151,13 +150,13 @@ usa <- tigris::states(progress_bar = FALSE)
 west <- usa[usa$STUSPS %in% c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT"),] 
 
 west_allgf_perc_all_burned <- west |>
-  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE),
+  dplyr::left_join(mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE),
                    by = dplyr::join_by(NAME == group))
 west_highgf_perc_all_burned <- west |>
-  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = highgf_perc_all_burned, group = NAME, repeated = FALSE),
+  dplyr::left_join(mblm_get_coefficients_by_group(dats = state_annual, x = year, y = highgf_perc_all_burned, group = NAME, repeated = FALSE),
                    by = dplyr::join_by(NAME == group))
 west_lowgf_perc_all_burned <- west |>
-  dplyr::left_join(tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = lowgf_perc_all_burned, group = NAME, repeated = FALSE),
+  dplyr::left_join(mblm_get_coefficients_by_group(dats = state_annual, x = year, y = lowgf_perc_all_burned, group = NAME, repeated = FALSE),
                    by = dplyr::join_by(NAME == group))
 
 create_west_graphic <- function(dats, title) {
@@ -194,7 +193,7 @@ Although changes on the scale of -0.3% / year seem small, over the course of the
 Total percentage point changes over the 35 years for each state are below (rounded to nearest integer) 
 
 ```{r takeaway}
-tlmr::mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
+mblm_get_coefficients_by_group(dats = state_annual, x = year, y = allgf_perc_all_burned, group = NAME, repeated = FALSE) |>
   dplyr::arrange(dplyr::desc(coefficient)) |>
   dplyr::mutate(totalPercentagePointChange = round(35 * coefficient)) |>
   dplyr::select(group, totalPercentagePointChange)

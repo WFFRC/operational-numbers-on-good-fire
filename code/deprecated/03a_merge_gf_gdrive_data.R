@@ -1,18 +1,11 @@
 # This script will read in a set of good fire data from your google drive and turn it into a single CSV
 
-rm(list=ls()) #Ensure empty workspace if running from beginning
 
-if(!requireNamespace("here", quietly = TRUE)) {
-  install.packages("here")
-}
-library(here)
+library('googledrive')
+library('dplyr')
+library('purrr')
+library('here')
 
-source(here::here("code", "functions.R"))
-
-install_and_load_packages(c("googledrive",
-                                  "dplyr",
-                                  "purrr",
-                                  "here"))
 
 #################################################
 
@@ -29,18 +22,25 @@ latestYear <- 2020
 
 # FUNCTIONS ----
 
+# A function to read a csv from a google drive path
+read.csv.from.gdrive <- function(path) {
+  f <- googledrive::drive_get(path)
+  csv <- f |>
+    googledrive::drive_read_string() %>%
+    read.csv(text = .)
+  return(csv)
+}
+
 
 # A function to read a good fire data file
 read.gf.csv.from.gdrive <- function(year, summarizeName) {
   path <- paste0("~/", driveFolder, "/gf_data_", as.character(year), "_", summarizeName, ".csv")
-  csv <- read_csv_from_gdrive(path = path)
+  csv <- read.csv.from.gdrive(path = path)
   return(csv)
 }
 
 
 # OPERATE ----
-
-# Manage GF summaries ----
 
 years <- seq(earliestYear,latestYear)
 
@@ -53,7 +53,7 @@ fullGFDataSet <- purrr::map(.x = years, .f = read.gf.csv.from.gdrive, summarizeN
 readr::write_csv(fullGFDataSet, here::here('data', 'derived', paste0("gf_data_combined_", summarizeName, "_", earliestYear, "_", latestYear, ".csv")))
 
 
-## Clean dataset and re-write as clean dataset
+# Clean dataset and re-write as clean dataset
 
 
 if(grepl('spark', summarizeName)) {
@@ -97,27 +97,4 @@ cleanGFDataSet <- cleanGFDataSet |>
   dplyr::mutate(TotalGoodFireAcres = HighSeverityGoodFireAcres + LowerSeverityGoodFireAcres)
 
 readr::write_csv(cleanGFDataSet, here::here('data', 'derived', paste0("clean_gf_data_combined_", summarizeName, ".csv")))
-
-
-
-# Manage GF events ----
-
-#GF event data from GDrive
-gfEventDataFl <- here::here('data', 'derived', 'gf_fire_events_2010_2020.csv')
-if(file.exists(gfEventDataFl)) {
-  gfEventData <- readr::read_csv(gfEventDataFl)
-} else {
-  gfEventData <- read_csv_from_gdrive(paste0("~/", driveFolder, "/gf_data_fire_events_2010_2020.csv")) #from GEE
-  readr::write_csv(gfEventData, gfEventDataFl)
-}
-
-# Raw GF events originally created
-goodfireEventDatabase <- sf::st_read(here::here("data", "derived", "goodfire_dataset_for_analysis_2010_2020.gpkg")) |>
-  sf::st_transform(sf::st_crs("EPSG:5070"))
-
-# Join the data and export
-
-allGFDats <- goodfireEventDatabase |>
-  dplyr::left_join(gfEventData, by = "DatasetID")
-sf::st_write(allGFDats, here::here("data", "derived", "merged_goodfire_final.gpkg"))
 

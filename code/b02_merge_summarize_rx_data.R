@@ -1,14 +1,12 @@
 
-#This code section loads a personal utilities package (tlmr), and then uses it for package management
-rm(list=ls()) #Ensure empty workspace if running from beginning
-if (!requireNamespace("tlmr", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")  # Install 'devtools' if it's not available
-  }
-  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
 }
-library(tlmr)
-tlmr::install_and_load_packages(c("googledrive",
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("googledrive",
                                   "purrr",
                                   "here",
                                   "tidyverse",
@@ -66,7 +64,7 @@ create.rx.summary <- function(polys, grpAttribute) {
 localRxPath <- here::here(derivedDatDir, 'gee_nfpors_lcms_lcmap.csv')
 if(!file.exists(localRxPath)) {
   rxGDrivePath <- paste0("~/", driveFolder, "gee_nfpors_lcms_lcmap.csv")
-  geeNfporsDats <- tlmr::read_csv_from_gdrive(rxGDrivePath)
+  geeNfporsDats <- read_csv_from_gdrive(rxGDrivePath)
   write_csv(geeNfporsDats, localRxPath)
 } else {
   geeNfporsDats <- readr::read_csv(here::here('data', 'derived', 'gee_nfpors_lcms_lcmap.csv'))

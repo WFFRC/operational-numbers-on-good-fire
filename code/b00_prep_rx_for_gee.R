@@ -5,15 +5,16 @@
 
 # SETUP ----
 
-#This code section loads a personal utilities package (tlmr), and then uses it for package management
-if (!requireNamespace("tlmr", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")  # Install 'devtools' if it's not available
-  }
-  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
+rm(list = ls())
+
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
 }
-library(tlmr)
-tlmr::install_and_load_packages(c("sf", "here", "dplyr"))
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("sf", "here", "dplyr"))
 
 
 #Load data from geodatabase (provided by Karen Cummins, Tall Timbers)
@@ -26,7 +27,7 @@ nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', '
 #re-export as shp for GEE
 
 #Write as shapefile
-tlmr::st_write_shp(shp = nfpors |>
+st_write_shp(shp = nfpors |>
                      dplyr::mutate(PointId = objectid__) |>
                      dplyr::select(PointId),
              location = here::here("data", "raw"),

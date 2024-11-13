@@ -12,6 +12,12 @@ Last updated: 9/19/24
 
 rm(list=ls()) #Ensure empty workspace if running from beginning
 
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+library(here)
+
+source(here::here("code", "functions.R"))
 
 ##################################
 ###### USER FILLED OUT PARAMETERS ##################################
@@ -36,17 +42,7 @@ bgNeutralCol <- "gray95"
 #gfhscol
 
 
-
-
-#This code section loads a personal utilities package (tlmr), and then uses it for package management
-if (!requireNamespace("tlmr", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")  # Install 'devtools' if it's not available
-  }
-  devtools::install_github('TylerLMcIntosh/tlm-r-utility', force = TRUE)
-}
-library(tlmr)
-tlmr::install_and_load_packages(c(
+install_and_load_packages(c(
                       "tidyverse", #Includes ggplot2, dplyr, tidyr, readr, purrr, tibble, stringr, forcats
                       "terra",
                       "sf",
@@ -74,11 +70,11 @@ tlmr::install_and_load_packages(c(
 
 #Ensure necessary directories are created
 figsDir <- here::here("figs")
-tlmr::dir_ensure(figsDir)
+dir_ensure(figsDir)
 
 
 derivedDatDir <- here::here("data", "derived")
-tlmr::dir_ensure(derivedDatDir)
+dir_ensure(derivedDatDir)
 
 
 ```
@@ -103,8 +99,6 @@ rxSpatial <- sf::st_read(here::here(derivedDatDir, 'nfpors_filtered_ready_for_an
 # Prepped gf spatial data (a03)
 gfSpatial <- sf::st_read(here::here(derivedDatDir, 'merged_goodfire_final.gpkg')) |>
   sf::st_transform(sf::st_crs(epsg))
-
-
 
 ```
 
@@ -219,7 +213,6 @@ allSummary <- allSummary |>
 
 ```
 
-
 # Create graphics
 
 ## Overall Graphic
@@ -285,8 +278,6 @@ ggplot2::ggplot(overallGraphicData) +
   # geom_text(data = overallGraphicData |> dplyr::filter(datNm == 'highGoodFire'), aes(x = stackGroup, y = 0, label = paste("High Severity: ", scales::comma(highSevNum), unitAbbr)), nudge_x = -0.2, hjust = -1.9, colour = "black", size = textSz-2)
 
 ggplot2::ggsave(filename = here::here(figsDir, glue::glue('overall_new_{unitAbbr}.png')), units = "in", width = 6, height = 2.5, bg = "transparent")
-
-
 
 ```
 
@@ -469,15 +460,34 @@ lowerGoodOfTot <- lowerSevNum / totalWildfireNum * 100
 highGoodOfTot <- highSevNum / totalWildfireNum * 100
 allGoodOfTot <- (lowerSevNum + highSevNum) / totalWildfireNum * 100
 
+
+
+
+lowerSevGFRxCompare = ((lowerSevNum / rxArea) - 1) * 100
+allSevGFRxCompare = (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
+
+# RX details
+
 rxByFRG <- rxData |>
   dplyr::group_by(FRGDescription) |>
   dplyr::summarise(nEvents = sum(nEvents),
                    rxBurnArea = sum(rxBurnArea)) |>
   dplyr::ungroup()
 
+rxLowSevPerc <- ((rxByFRG |>
+                    dplyr::filter(FRGDescription == "frcLowMix") |>
+                    dplyr::pull(rxBurnArea)) / 
+                  sum(rxByFRG$rxBurnArea)) * 100
 
-lowerSevGFRxCompare = ((lowerSevNum / rxArea) - 1) * 100
-allSevGFRxCompare = (((lowerSevNum + highSevNum) / rxArea) - 1) * 100
+rxBroadcastOfLowSev <- (rxSpatial |>
+                          dplyr::group_by(FRGDescription, TYPENAME) |>
+                          dplyr::summarise(tot_area = sum(TOTALACCOMPLISHMENT_FINAL)) |>
+                          dplyr::filter(FRGDescription == "frcLowMix" &
+                                          TYPENAME == "Broadcast Burn") |>
+                          dplyr::pull(tot_area) / 
+                        (rxByFRG |>
+                        dplyr::filter(FRGDescription == "frcLowMix") |>
+                        dplyr::pull(rxBurnArea))) * 100
 
 
 ```
@@ -603,10 +613,10 @@ create.plots(
 
 
 #Get hex ids for future use in associated visualizations
-tlmr::col2hex(totCol)
-tlmr::col2hex(rxCol)
-tlmr::col2hex(bgNeutralCol)
-tlmr::col2hex(boundaryCol)
+col2hex(totCol)
+col2hex(rxCol)
+col2hex(bgNeutralCol)
+col2hex(boundaryCol)
 
 
 ```
@@ -621,7 +631,7 @@ tlmr::col2hex(boundaryCol)
 visRasterLocalPath <- here::here(derivedDatDir, rasterForVizF)
 if(!file.exists(visRasterLocalPath)) {
   vizRasterGDrivePath <- paste0("~/", driveFolder, "/", rasterForVizF)
-  tlmr::download_data_from_gdrive(vizRasterGDrivePath, visRasterLocalPath)
+  download_data_from_gdrive(vizRasterGDrivePath, visRasterLocalPath)
 }
 rasterForViz <- terra::rast(visRasterLocalPath)
 
