@@ -40,13 +40,8 @@ install_and_load_packages <- function(package_list, auto_install = "n") {
   
   # Check if pak is installed; install if not
   if (!requireNamespace("pak", quietly = TRUE)) {
-    cat("The 'pak' package is required for fast installation of packages.\n")
-    response <- if (auto_install == "y") "y" else readline(prompt = "\nDo you want to install the 'pak' package? (y/n): ")
-    if (tolower(response) == "y") {
-      install.packages("pak")
-    } else {
-      stop("Installation cannot proceed without 'pak'. Please install it manually and rerun.")
-    }
+    cat("The 'pak' package is required for fast installation of packages, installing now.\n")
+    install.packages("pak")
   }
   
   # Initialize lists to store missing CRAN and GitHub packages
