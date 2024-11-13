@@ -2,7 +2,7 @@
 #' Install and Load Required Packages Using pak
 #'
 #' This function checks if the specified packages (both CRAN and GitHub) are installed and loads them. 
-#' If any packages are missing, it offers to install them automatically or asks for user permission.
+#' If any packages are missing, it installs them automatically.
 #' It uses the `pak` package for faster and more efficient package installation.
 #'
 #' @param package_list A list of package names to check and install (non-string, e.g., `c(dplyr, here)`).
@@ -48,14 +48,14 @@ install_and_load_packages <- function(package_list, auto_install = "n") {
   missing_cran_packages <- c()
   missing_github_packages <- c()
   
-  # Helper function to get user input
-  get_user_permission <- function(prompt_msg) {
-    if (auto_install == "y") {
-      return("y")
-    } else {
-      return(tolower(readline(prompt = prompt_msg)))
-    }
-  }
+  # # Helper function to get user input
+  # get_user_permission <- function(prompt_msg) {
+  #   if (auto_install == "y") {
+  #     return("y")
+  #   } else {
+  #     return(tolower(readline(prompt = prompt_msg)))
+  #   }
+  # }
   
   # Check for missing packages
   for (pkg in package_list) {
@@ -76,24 +76,24 @@ install_and_load_packages <- function(package_list, auto_install = "n") {
   
   # Install missing CRAN packages using pak::pkg_install
   if (length(missing_cran_packages) > 0) {
-    cat("The following CRAN packages are missing: ", paste(missing_cran_packages, collapse = ", "), "\n")
-    response <- get_user_permission("\nDo you want to install the missing CRAN packages? (y/n): ")
-    if (response == "y") {
+    # cat("The following CRAN packages are missing: ", paste(missing_cran_packages, collapse = ", "), "\n")
+    # response <- get_user_permission("\nDo you want to install the missing CRAN packages? (y/n): ")
+    # if (response == "y") {
       pak::pkg_install(missing_cran_packages, upgrade = TRUE)
-    } else {
-      cat("Skipping installation of missing CRAN packages.\n")
-    }
+    # } else {
+    #   cat("Skipping installation of missing CRAN packages.\n")
+    # }
   }
   
   # Install missing GitHub packages using pak::pkg_install
   if (length(missing_github_packages) > 0) {
-    cat("The following GitHub packages are missing: ", paste(missing_github_packages, collapse = ", "), "\n")
-    response <- get_user_permission("\nDo you want to install the missing GitHub packages? (y/n): ")
-    if (response == "y") {
+    # cat("The following GitHub packages are missing: ", paste(missing_github_packages, collapse = ", "), "\n")
+    # response <- get_user_permission("\nDo you want to install the missing GitHub packages? (y/n): ")
+    # if (response == "y") {
       pak::pkg_install(missing_github_packages, upgrade = TRUE)
-    } else {
-      cat("Skipping installation of missing GitHub packages.\n")
-    }
+    # } else {
+    #   cat("Skipping installation of missing GitHub packages.\n")
+    # }
   }
   
   # Load all packages after checking for installation
