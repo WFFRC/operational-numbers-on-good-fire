@@ -15,7 +15,7 @@ renv::activate()
 # Ensure the 'renv/library/' directory exists if (!dir.exists("renv/library")) { dir.create("renv/library", recursive = TRUE) }
 
 # Optionally restore the environment if the library is empty or missing
-if (length(list.files("renv/library", recursive = TRUE, pattern = "DESCRIPTION)) <= 1) {
+if (length(list.files("renv/library", recursive = TRUE, pattern = "DESCRIPTION")) <= 1) {
   response <- readline(prompt = "No packages detected in the renv library. Would you like to restore the environment? (y/n): ")
   if (tolower(response) == "y") {
     renv::restore(prompt = FALSE)
