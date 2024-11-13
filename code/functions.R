@@ -26,17 +26,17 @@ install_and_load_packages <- function(package_list, auto_install = "n") {
     }
   })
   
-  # Check if 'renv' is installed; if not, skip the 'renv' check
-  if (requireNamespace("renv", quietly = TRUE) && renv::is_active()) {
-    cat("renv is active. Only loading packages...\n")
-    for (pkg in package_list) {
-      package_name <- if (grepl("/", pkg)) unlist(strsplit(pkg, "/"))[2] else pkg
-      if (!require(package_name, character.only = TRUE)) {
-        cat("Failed to load package:", package_name, "\n")
-      }
-    }
-    return(invisible())
-  }
+  # # Check if 'renv' is installed; if not, skip the 'renv' check
+  # if (requireNamespace("renv", quietly = TRUE) && renv::is_active()) {
+  #   cat("renv is active. Only loading packages...\n")
+  #   for (pkg in package_list) {
+  #     package_name <- if (grepl("/", pkg)) unlist(strsplit(pkg, "/"))[2] else pkg
+  #     if (!require(package_name, character.only = TRUE)) {
+  #       cat("Failed to load package:", package_name, "\n")
+  #     }
+  #   }
+  #   return(invisible())
+  # }
   
   # Check if pak is installed; install if not
   if (!requireNamespace("pak", quietly = TRUE)) {
