@@ -1,5 +1,5 @@
 UPDATE THESE: 
-[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip) [![license](https://img.shields.io/badge/license-BY_NC_ND_4.0)](https://creativecommons.org/licenses/by-nc-nd/4.0/) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4648947.svg)](https://doi.org/10.1101/2024.12.06.627082)
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip) [![license](https://img.shields.io/badge/license-BY_NC_ND_4.0-blue)](https://creativecommons.org/licenses/by-nc-nd/4.0/) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4648947.svg)](https://doi.org/10.1101/2024.12.06.627082)
 ![graphical abstract showing data layers integrated and software used in workflow](/images/gf_overview.jpg)
 
 
