@@ -87,7 +87,6 @@ west <- tigris::states() |>
   sf::st_transform(epsg)
 
 
-
 # ## Access data
 # 
 # #Access welty & jeffries combined wildland fire polygons dataset
