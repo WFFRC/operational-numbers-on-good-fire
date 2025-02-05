@@ -4,16 +4,30 @@
 
 # Good fire in western U.S. forests: estimating the beneficial ecosystem work of wildfires
 
-This repository contains code, data, and graphics to accompany {ADD CITATION & DOI HERE ONCE PUBLISHED}
+This repository contains code, data, and graphics to accompany {ADD CITATION & DOI HERE ONCE PUBLISHED}. This repository is intended to support research reproduction according to principles of Open Science and FAIR data principles.
 
-## Contents
+## Requirements
 
-This repository is intended to support research reproduction according to principles of Open Science and FAIR data principles.
+Analyses require use of Google Earth Engine (GEE) and R.
 
-Analyses require use of Google Earth Engine and R.
+This codebase has been tested on the following operating systems:
+
+Linux:
+Mac OSX:
+Windows: Windows 11 Pro
+
+R version 4.3.2 and Google Earth Engine as of 2024 were used for code development and testing.
+
+Users will need to install and set up several packages from CRAN.
+
+## Code access
 
 To clone this repo to your workspace: 
 ``` git clone https://github.com/TylerLMcIntosh/a-number-on-good-fire ```
+
+Cloning time should be negligible.
+
+## Contents
 
 Scripts in the /code directory are ordered from 00 on up, and are meant to be run in order. Scripts with 'a' before the number manage wildfire event data manipulation and summarization prior to data merge, while scripts with 'b' before the number manage prescribed burn event data manipulation and summarization. Scripts with neither 'a' or 'b' are the core analysis scripts used after all data are prepared for analysis.
 
