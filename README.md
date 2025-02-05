@@ -27,6 +27,9 @@ To clone this repo to your workspace:
 
 Cloning time should be negligible.
 
+## Code demo
+A small demo dataset is available in the "demo_data" directory. This directory contains three demo datasets, one each for MTBS, Welty, and NFPORS data in the state of Colorado. To test analyses on this smaller spatial area, copy the datasets into a data/raw directory and change the associated file paths in the scripts.
+
 ## Contents
 
 Scripts in the /code directory are ordered from 00 on up, and are meant to be run in order. Scripts with 'a' before the number manage wildfire event data manipulation and summarization prior to data merge, while scripts with 'b' before the number manage prescribed burn event data manipulation and summarization. Scripts with neither 'a' or 'b' are the core analysis scripts used after all data are prepared for analysis.
