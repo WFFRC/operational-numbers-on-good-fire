@@ -214,7 +214,7 @@ st_write_shp <- function(shp, location, filename, zip_only = FALSE, overwrite = 
   }
   
   # Create the directory if not there
-  tlmr::dir_ensure(out_dir)
+  dir_ensure(out_dir)
   
   # Write the shapefile
   shapefile_path <- file.path(out_dir, paste0(filename, ".shp"))

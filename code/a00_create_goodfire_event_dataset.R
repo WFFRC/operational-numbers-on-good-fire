@@ -1,6 +1,7 @@
-
 # This script will create a set of polygons to use for the good fire project. It combines MTBS and combined wildland fire polygons
-# Tyler L. McIntosh 2024
+# This version of the code only uses the Welty & Jeffries polygons
+# But excludes reburns through the entire history of the W&J dataset
+# Tyler L. McIntosh 2025
 
 rm(list = ls())
 
@@ -12,140 +13,179 @@ library(here)
 source(here::here("code", "functions.R"))
 
 install_and_load_packages(c("tigris",
-                                  "tictoc",
-                                  "httr",
-                                  "jsonlite",
-                                  "sf",
-                                  "tidyverse"))
+                            "tictoc",
+                            "httr",
+                            "jsonlite",
+                            "sf",
+                            "tidyverse"))
+
+dir_derived <- here::here('data', 'derived')
+dir_ensure(dir_derived)
+
 
 # FUNCTIONS ----
 
-#Operational function to merge the welty & MTBS datasets
-create_combined_event_set <- function(earliestYear, latestYear) {
-  # WELTY
-  #filter to time period and geographic area of interest, add size category
-  weltyInterest <- welty |>
-    dplyr::filter(Fire_Year >= earliestYear & Fire_Year <= latestYear) |>
-    sf::st_filter(west) |>
-    dplyr::mutate(SizeCategory = dplyr::case_when(GIS_Acres >= 1000 ~ "Large",
-                                                  GIS_Acres < 1000 ~ "Small"))
+
+get_non_overlapping_parts_fast <- function(polygons) {
+  intersections <- st_intersects(polygons, polygons, sparse = TRUE)
   
-  #Split welty into RX & wildfire
-  weltyInterestRx <- weltyInterest |>
-    dplyr::filter(Assigned_F == "Prescribed Fire" | Assigned_F == "Unknown - Likely Prescribed Fire")
-  weltyInterestWF <- weltyInterest|>
-    dplyr::filter(Assigned_F == "Wildfire" | Assigned_F == "Likely Wildfire")
+  result <- map_dfr(seq_len(nrow(polygons)), function(i) {
+    this_poly <- polygons[i, ]
+    
+    neighbors <- setdiff(intersections[[i]], i)
+    
+    if (length(neighbors) == 0) {
+      return(this_poly)
+    }
+    
+    other_union <- st_union(st_geometry(polygons[neighbors, ]))
+    diff_geom <- st_difference(st_geometry(this_poly), other_union)
+    
+    if (length(diff_geom) == 0 || all(st_is_empty(diff_geom))) {
+      return(NULL)
+    } else {
+      this_poly$geometry <- diff_geom
+      return(this_poly)
+    }
+  })
   
-  weltyInterestWFSub1000 <- weltyInterestWF |>
-    dplyr::filter(SizeCategory == "Small") |>
-    dplyr::mutate(Dataset = "Welty", DatasetID = OBJECTID) |>
-    dplyr::select(DatasetID, Dataset, Fire_Year)
+  return(result)
+}
+
+get_non_overlapping_parts_fast_2 <- function(polygons1, polygons2) {
+  # Precompute spatial index for efficiency
+  intersection_index <- st_intersects(polygons1, polygons2, sparse = TRUE)
   
-  # MTBS
+  result <- map_dfr(seq_len(nrow(polygons1)), function(i) {
+    this_poly <- polygons1[i, ]
+    neighbors_idx <- intersection_index[[i]]
+    
+    if (length(neighbors_idx) == 0) {
+      return(this_poly)  # No overlap — return original
+    }
+    
+    overlapping_union <- st_union(st_geometry(polygons2[neighbors_idx, ]))
+    diff_geom <- st_difference(st_geometry(this_poly), overlapping_union)
+    
+    if (length(diff_geom) == 0 || all(st_is_empty(diff_geom))) {
+      return(NULL)
+    } else {
+      this_poly$geometry <- diff_geom
+      return(this_poly)
+    }
+  })
   
-  mtbsInterestWF <- mtbs |>
-    dplyr::filter(Incid_Type != "Prescribed Fire") |>
-    #dplyr::filter(Incid_Type == "Wildfire") |>
-    dplyr::mutate(Fire_Year = lubridate::year(Ig_Date)) |>
-    dplyr::filter(Fire_Year>= earliestYear & Fire_Year <= latestYear) |>
-    sf::st_filter(west) |>
-    dplyr::mutate(Dataset = "MTBS", DatasetID = Event_ID) |>
-    dplyr::select(DatasetID, Dataset, Fire_Year) |>
-    dplyr::rename(geometry = geom)
-  
-  
-  ## MERGE & WRITE ----
-  allFiresInterest <- rbind(mtbsInterestWF, weltyInterestWFSub1000) |>
-    dplyr::mutate(GoodFireID = paste0("GF_", dplyr::row_number()))
-  
-  
-  derivedDatDir <- here::here('data', 'derived')
-  if(!dir.exists(derivedDatDir)) {
-    dir.create(derivedDatDir)
-  }
-  
-  flNm <- paste("goodfire_dataset_for_analysis", earliestYear, latestYear, sep = "_")
-  
-  sf::st_write(allFiresInterest, here::here(derivedDatDir, paste0(flNm, ".gpkg")), append = FALSE)
-  st_write_shp(shp = allFiresInterest,
-               location = here::here('data', 'derived'),
-               filename = flNm,
-               zip_only = TRUE,
-               overwrite = TRUE)
+  return(result)
 }
 
 
-# OPERATE ----
+create_no_reburn_dataset <- function(dats, start_year, end_year, year_col) {
+  subset <- dats |> 
+    dplyr::filter({{year_col}} >= start_year & {{year_col}} <= end_year)
+  
+  pre_subset <- welty |>
+    dplyr::filter({{year_col}}  < start_year)
+  
+  
+  tic("Subset resolve overlap")
+  subset_no_self_reburn <- subset |>
+    get_non_overlapping_parts_fast()
+  toc()
+  tic("Non-subset resolve overlap")
+  subset_no_reburn_all <- subset_no_self_reburn |>
+    get_non_overlapping_parts_fast_2(polygons2 = pre_subset)
+  toc()
+  
+  return(subset_no_reburn_all)
+}
+
+
+
+# Operate ----
+
 
 epsg <- "EPSG:5070"
 
 westernStates <- c("WA", "OR", "CA", "ID", "NV", "MT", "WY", "UT", "CO", "AZ", "NM")
-#westernStates <- c("CO")
 
 west <- tigris::states() |>
   dplyr::filter(STUSPS %in% westernStates) |>
   sf::st_transform(epsg)
 
-
-# ## Access data
-# 
-# #Access welty & jeffries combined wildland fire polygons dataset
-# tic()
-# welty <- tlmr::access_data_welty_jeffries(bbox_str = tlmr::st_bbox_str(west),
-#                                           epsg_n = 5070,
-#                                           where_param = "1=1",
-#                                           timeout = 40000)
-# toc()
-# 
-# 
-# 
-# 
-# tic()
-# t <- tlmr::access_data_welty_jeffries(bbox_str = tlmr::st_bbox_str(west),
-#                                           epsg_n = 5070,
-#                                           where_param = utils::URLencode("Fire_Year BETWEEN 2010 AND 2020 AND GIS_Acres < 1000 AND (Assigned_Fire_Type = 'Wildfire' OR Assigned_Fire_Type = 'Likely Wildfire')"),
-#                                           timeout = 1200)
-# toc()
-# 
-# 
-# 
-# tic()
-# t <- tlmr::access_data_welty_jeffries(bbox_str = tlmr::st_bbox_str(west),
-#                                       epsg_n = 5070,
-#                                       where_param = utils::URLencode("GIS_Acres<1000"),
-#                                       timeout = 1200)
-# toc()
-# 
-# 
-# 
-# 
-# x <- utils::URLencode("Fire_Year BETWEEN 2010 AND 2020 AND GIS_Acres < 1000 AND (Assigned_Fire_Type = 'Wildfire' OR Assigned_Fire_Type = 'Likely Wildfire')")
-# 
-
 # The welty & jeffries combined fire polygon dataset can be acquired here: https://www.sciencebase.gov/catalog/item/61aa537dd34eb622f699df81
 welty <- sf::st_read(here::here('data', 'raw', 'welty_combined_wildland_fire_dataset', 'welty_combined_wildland_fire_perimeters.shp')) |>
   sf::st_transform(epsg)
 
-
-#Access MTBS dataset
-mtbsFile <- here::here('data', 'raw', 'mtbs_perims.gpkg')
-if(!file.exists(mtbsFile)) {
-  mtbs <- access_data_mtbs_conus()
-  sf::st_write(mtbs, mtbsFile)
-} else {
-  mtbs <- sf::st_read(mtbsFile)
-}
-mtbs <- mtbs |>
-  sf::st_transform(epsg)
-
-unique(mtbs$Incid_Type)
+welty_wf <- welty|>
+  dplyr::filter(Assigned_F == "Wildfire" | Assigned_F == "Likely Wildfire")
 
 
-# Use operational function
-create_combined_event_set(earliestYear = 2010, latestYear = 2020)
-create_combined_event_set(earliestYear = 1985, latestYear = 2020)
+# Use functions
+welty_no_reburn_2010_2020 <- create_no_reburn_dataset(
+  dats = welty_wf,
+  start_year = 2010,
+  end_year = 2020,
+  year_col = Fire_Year
+)
+
+welty_no_reburn_1984_2020 <- create_no_reburn_dataset(
+  dats = welty_wf,
+  start_year = 1984,
+  end_year = 2020,
+  year_col = Fire_Year
+)
 
 
 
+# Write files
+flnm <- here::here(dir_derived, "goodfire_dataset_for_analysis_2010_2020_no_reburns.gpkg")
+sf::st_write(welty_no_reburn_2010_2020, flnm, append = FALSE)
+st_write_shp(shp = welty_no_reburn_2010_2020,
+             location = dir_derived,
+             filename = "goodfire_dataset_for_analysis_2010_2020_no_reburns",
+             zip_only = TRUE,
+             overwrite = TRUE)
+
+flnm <- here::here(dir_derived, "goodfire_dataset_for_analysis_1984_2020_no_reburns.gpkg")
+sf::st_write(welty_no_reburn_1984_2020, flnm, append = FALSE)
+st_write_shp(shp = welty_no_reburn_1984_2020,
+             location = dir_derived,
+             filename = "goodfire_dataset_for_analysis_1984_2020_no_reburns",
+             zip_only = TRUE,
+             overwrite = TRUE)
+
+
+
+
+
+# 
+# # Testing ----
+# 
+# test_area <- mapedit::drawFeatures()
+# test_area <- test_area |>
+#   sf::st_transform(epsg)
+# 
+# 
+# test_welty <- welty |>
+#   st_filter(test_area) |>
+#   dplyr::filter(Fire_Year > 2010)
+# test_welty_early <- welty |>
+#   st_filter(test_area) |>
+#   dplyr::filter(Fire_Year <= 2010)
+# 
+# 
+# y <- get_non_overlapping_parts_fast(test_welty_tiny_new)
+# tic()
+# z <- get_non_overlapping_parts_fast(test_welty)
+# toc()
+# mapview(test_welty) + mapview(z)
+# 
+# 
+# xxx <- get_non_overlapping_parts_fast_2(polygons1 = z,
+#                                         polygons2 = test_welty_early)
+# 
+# 
+# mapview(test_welty_early) + mapview(test_welty) + mapview(z) + mapview(xxx)
+# 
 
 

@@ -35,7 +35,7 @@ invisible(lapply(list.of.packages, library, character.only = TRUE)) #use 'invisi
 
 ## Clean workspace & set up environment ----
 rm(list=ls()) #Ensure empty workspace if running from beginning
-here::i_am("code/02_a_number_on_prescribed_burns_data.Rmd")
+#here::i_am("code/02_a_number_on_prescribed_burns_data.Rmd")
 here::here() #Check here location
 #OR
 #setwd() #Set working directory directly
@@ -56,15 +56,15 @@ if (!dir.exists(derivedDatDir)){
 
 # #Get shapefiles for the US
 # # Fetch all US states
-# usa <- tigris::states() %>% 
-#   st_transform(st_crs(4269))
+usa <- tigris::states() %>%
+  st_transform(st_crs(4269))
 # 
 # # Filter for contiguous states (excluding Alaska and Hawaii)
 # conus <- usa[usa$STUSPS %in% c("WA", "ID", "MT", "ND", "MN", "MI", "ME", "WI", "VT", "NH", "NY", "SD", "WY", "OR", "IA", "NE", "IL", "NV", "UT", "CO", "KS", "OK", "NM", "AZ", "AR", "MO", "MS", "AL", "GA", "SC", "NC", "TN", "KY", "IN", "OH", "WV", "VA", "PA", "MD", "DE", "NJ", "CT", "RI", "MA", "CT", "CA", "TX", "FL", "LA"),]
 
 
 westAbbrList <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
-#west <- usa[usa$STUSPS %in% westAbbrList,]
+west <- usa[usa$STUSPS %in% westAbbrList,]
 
 
 ```
@@ -78,7 +78,7 @@ nfpors <- sf::st_read(here::here('data', 'raw', 'NFPORS_WestStates_2010_2021', '
   dplyr::filter(!is.na(ACTUALCOMPLETIONDATE)) #ensure all included burns were actually done
 
 #load facts
-facts <- sf::st_read(here::here('data', 'raw', 'S_USA.Activity_HazFuelTrt_PL.gdb', 'S_USA.Activity_HazFuelTrt_PL.gdb'),
+facts <- sf::st_read(here::here('data', 'raw', 'deprecated', 'S_USA.Activity_HazFuelTrt_PL.gdb', 'S_USA.Activity_HazFuelTrt_PL.gdb'),
                       layer = "Activity_HazFuelTrt_PL")
 
 ```
