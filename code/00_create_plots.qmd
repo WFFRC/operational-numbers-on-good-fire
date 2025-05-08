@@ -69,9 +69,10 @@ install_and_load_packages(c(
 
 
 #Ensure necessary directories are created
-figsDir <- here::here("figs")
+# figsDir <- here::here("figs")
+# dir_ensure(figsDir)
+figsDir <- here::here("figs_no_reburn")
 dir_ensure(figsDir)
-
 
 derivedDatDir <- here::here("data", "derived")
 dir_ensure(derivedDatDir)
@@ -90,7 +91,8 @@ epsg <- "EPSG:4326" #use WGS 84 for visualization
 
 #RX & GF summarized by state
 rxData <- readr::read_csv(here::here('data', 'derived', "rx_state_summary.csv")) #from b02
-gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_2010_2020.csv')) #from a03
+#gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_2010_2020.csv')) #from a03
+gfData <- readr::read_csv(here::here('data', 'derived', 'gf_data_combined_states_no_reburn_v1_2010_2020.csv'))
 
 # Prepped rx spatial data (b02)
 rxSpatial <- sf::st_read(here::here(derivedDatDir, 'nfpors_filtered_ready_for_analysis.gpkg')) |>

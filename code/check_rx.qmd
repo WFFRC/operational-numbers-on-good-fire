@@ -1,0 +1,786 @@
+---
+title: "NFPORS vs FACTS comparison"
+author: Tyler L. McIntosh
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    html-math-method: katex
+    css: styles.css
+    toc: true
+    toc-depth: 1
+    toc-title: Contents
+    toc-location: right
+    code-fold: true
+    code-summary: "Show the code"
+---
+
+# Overview & Takeaways
+
+Here we compare data from the FACTS and NFPORS databases on hazardous fuel treatments. These two databases are the most commonly used databases for recording federal fuel treatments, and have data starting in 2000. The FACTS database only contains data from USFS lands, while NFPORS has data from the Department of the Interior (DOI) as well. Note that neither database includes state or private treatments; while state prescribed burn councils have some of these numbers (see annual RX burn reports), the data is NOT spatially located. The FACTS database contains treatment perimeters, while NFPORS contains point data. The NFPORS does appear to have a separate polygon treatment layer, which we will review at the end.
+
+For the comparison we only use data from western states, and only data on the following treatment types: "Biomass Removal", "Broadcast Burn", "Chipping", "Crushing", "Fire Use", "Jackpot Burn", "Lop and Scatter", "Machine Pile", "Machine Pile Burn", "Thinning", "Mastication", "Mowing", "Hand Pile", "Hand Pile Burn", and "Mastication/Mowing". We also examine prescribed burn types specifically (Broadcast Burn, Fire Use, Jackpot Burn, Machine Pile Burn, Hand Pile Burn).
+
+We find that the FACTS database contains data on 2024 and some already from 2025, while the NFPORS database only contains data up through 2023 (as of 5/7/2025). FACTS is clearly more actively maintained and has more recent information.
+
+In general, NFPORS contains more treatment events and hectares treated, both for a general set of treatments (listed above), and for just the types of prescribed burning. This is driven by a higher amount of data in the earlier years of the record (i.e. 2000-2007) and by the inclusion of data from agencies other than the USFS. One caveat is that if the data is restricted to ONLY include those treatments in NFPORS that are specifically designated as "hazardous fuel reductions", it does decrease the treatment events and area so that FACTS and NFPORS are more equivalent.
+
+NFPORS has a polygon treatment layer that I have not seen used before. The API does not successfully return all data (throwing errors in some of the more recent years), but does return >45,000 polygons for treatments on NON-USFS lands (NPS, BIA, and BLM). When we filter these in the same way as the rest of our data, 97% of the polygons have a matching entry (by treatment ID) in the regular NFPORS database. While there are discrepancies between the area recorded in the polygon and point datasets, the area-difference histogram is heavily centered at 0, indicating that most polygons have the same area recorded in both places.
+
+While both NFPORS and FACTS have unique treatment IDs for each event, unfortunately they do NOT appear to match, even when the NFPORS data is from FACTS, making it impossible to explicitly link the databases to gain a more comprehensive view of USFS fuel treatments.
+
+If a user wanted comprehensive data on federal hazardous fuel treatments, options are as follow: - SIMPLEST, DON'T NEED POLYGONS: Use NFPORS points - SIMPLEST, NEED POLYGONS: Use FACTS polygons with the understanding that the data is only on USFS lands - FOR COMPREHENSIVE POLYGONS-ONLY: Use FACTS polygons + NFPORS polygons from other agencies - FOR MOST COMPREHENSIVE POLYGONS + POINTS: Use FACTS polygons + NFPORS polygons from other agencies + additional NFPORS points from non-USFS agencies
+
+# Data overview
+
+## NFPORS overview
+
+"NFPORS (National Fire Plan Operations and Reporting System) is an interagency system designed to assist field personnel in planning, managing, and reporting work conducted under the program areas originally described in the 2001 National Fire Plan. It provides a consistent framework between DOI wildland fire management agencies for tracking Hazardous Fuels Reduction, Post Wildfire Recovery (including both Emergency Stabilization and Burned Area Rehabilitation),and Community Assistance activities.
+
+NFPORS is the DOI authoritative system of record for plans and accomplishments in these specific wildland fire management activities and it allows for uniform reporting at field, regional, and national levels. The data are used for high-level decision making tools and funding for the national wildland fire program.
+
+NFPORS began comprehensive tracking of federal Hazardous Fuels Reduction (HFR) treatments in 2003 for work funded by the National Fire Plan. Five agencies, including the Bureau of Indian Affairs, Bureau of Land Management, US Fish and Wildlife Service, National Park Service and US Forest Service provide treatment planning and accomplishment data using NFPORS. Some Treatments may be shown that were conducted prior to FY2003 primarily by the Forest Service.
+
+Treatment Categories:
+
+Prescribed Fire - To deliberately burn wildland fuels in either their natural or modified state and under specified environmental conditions, which allows the fire to be confined to a predetermined area and produces the fire line intensity and rate of spread required to attain planned resource management objectives.
+
+Mechanical Fuel Treatment - HFR work that manually or mechanically removes or modifies fuel load structures to achieve fire management plans.
+
+Other (Treatment) - HFR work that involves the use of chemicals and biological methods to achieve fire management plans. "
+
+For more information on NFPORS, [visit here](https://usgs.nfpors.gov/NFPORS/index.html).
+
+Note: NFPORS data is being accessed via a REST API (URL in code). Metadata descriptions of NFPORS data fields can be [found here](https://usgs.nfpors.gov/NFPORS/help/metadata/v3_treatments_curfy_FGDC.xml).
+
+NOTE2: It DOES look like there are NFPORS treatment polygons that can be accessed via [this REST API](https://usgs.nfpors.gov/arcgis/rest/services/nfpors_extract/MapServer/12), but the API isn't letting me pull the data.
+
+## FACTS overview
+
+"HazFuelTrt_PL (Hazardous Fuel Treatments - Polygon) represents activities of hazardous fuel treatment reduction that are polygons. All accomplishments toward the unified hazardous fuels reduction target must meet the following definition: "Vegetative manipulation designed to create and maintain resilient and sustainable landscapes, including burning, mechanical treatments, and/or other methods that reduce the quantity or change the arrangement of living or dead fuel so that the intensity, severity, or effects of wildland fire are reduced within acceptable ecological parameters and consistent with land management plan objectives, or activities that maintain desired fuel conditions. These conditions should be measurable or predictable using fire behavior prediction models or fire effects models." The data came from the Forest Service's Natural Resource Manager (NRM) Forest Activity Tracking System (FACTS), which is the agency standard for managing information about activities related to fire/fuels, silviculture, and invasive species. FACTS is an activity tracking application for all levels of the Forest Service"
+
+FACTS data can be [downloaded here](https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=Hazardous+Fuel+Treatment). FACTS metadata can be [found here](https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Actv_HazFuelTrt_PL.xml).
+
+# Setup
+
+Access data, filter to western US and only those events that appear to have actually been completed (i.e have a completion date), remove duplicate treatment IDs, unify some naming conventions.
+
+```{r setup-chunk, message = FALSE, warning = FALSE}
+
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("sf",
+                            "here",
+                            "httr",
+                            "glue",
+                            "patchwork",
+                            "tidyverse"))
+
+dir_raw <- here::here("data", "raw")
+dir_ensure(dir_raw)
+
+
+# Load data
+facts_gdb <- here(dir_raw, "Actv_HazFuelTrt_PL.gdb") 
+st_layers(facts_gdb) #from https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=Hazardous+Fuel+Treatment
+facts <- st_read(facts_gdb,
+                 layer = "Actv_HazFuelTrt_PL",
+                 quiet = TRUE)
+
+
+
+
+
+# stream NFPORS if don't have it locally
+nfpors_fl <- here(dir_raw, "nfpors_api.gpkg")
+if(!file.exists(nfpors_fl)) {
+  query_params <- list(where = "1=1",
+                       outFields = "*",
+                       f = "geojson")
+  nfpors_base_url = "https://usgs.nfpors.gov/arcgis/rest/services/nfpors_treats/FeatureServer/1/QUERY"
+  
+  httr::GET(nfpors_base_url, query = query_params) #test query
+  
+  
+  nfpors <- access_data_get_x_from_arcgis_rest_api_geojson(base_url = nfpors_base_url,
+                                                           query_params = query_params,
+                                                           max_record = 1000,
+                                                           n = "all",
+                                                           timeout = 1000)
+  sf::st_write(nfpors,
+               nfpors_fl,
+               append = FALSE)
+} else {
+  nfpors <- sf::st_read(nfpors_fl, quiet = TRUE)
+}
+
+
+# Initial manipulation and filters
+
+west_state_list <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+
+
+facts <- facts |>
+  dplyr::filter(!is.na(DATE_COMPLETED)) |>
+  dplyr::mutate(actualcompletionyear = year(as.Date(DATE_COMPLETED))) |>
+  dplyr::filter(STATE_ABBR %in% west_state_list) |>
+  dplyr::mutate(hectares = GIS_ACRES * 0.404686) |>
+  dplyr::rename(stateabbr = STATE_ABBR)
+
+nfpors <- nfpors |>
+  dplyr::filter(!is.na(actualcompletiondate)) |>
+  distinct(treatmentid, .keep_all = TRUE) |>
+  dplyr::filter(stateabbr %in% west_state_list) |>
+  dplyr::mutate(hectares = totalaccomplishment * 0.404686,
+                actualcompletionyear = as.numeric(actualcompletionyear))
+```
+
+# Where is the data in NFPORS coming from & what is in it; also, what is in FACTS
+
+NFPORS contains information on lots of things beyond fuel treatments! Let's stick to just treatment types of "Biomass Removal", "Broadcast Burn", "Chipping", "Crushing", "Fire Use", "Jackpot Burn", "Lop and Scatter", "Machine Pile", "Machine Pile Burn", "Thinning", "Mastication", "Mowing", "Hand Pile", "Hand Pile Burn", and "Mastication/Mowing".
+
+```{r}
+
+# Review and compare overall contents of each
+#glimpse(nfpors)
+#glimpse(facts)
+
+# NFPORS
+glue::glue("Treatment category contents: {unique(nfpors$categoryname)}")
+# unique(nfpors$typename)
+glue::glue("Purpose designation contents: {unique(nfpors$keypointname)}")
+
+
+# Treatments included - commented out to avoid cluttering output
+# sort(unique(nfpors$typename))
+# sort(unique(facts$TREATMENT_TYPE))
+
+# Filter to treatments of interest
+treatment_types_of_interest <- c("Biomass Removal", "Broadcast Burn", "Chipping", "Crushing", "Fire Use", "Jackpot Burn", "Lop and Scatter", "Machine Pile", "Machine Pile Burn", "Thinning", "Mastication", "Mastication/Mowing", "Hand Pile", "Hand Pile Burn", "Mowing", "Biomass Removall")
+
+facts_interest <- facts |>
+    filter(TREATMENT_TYPE %in% treatment_types_of_interest)
+
+nfpors_interest <- nfpors |>
+    filter(typename %in% treatment_types_of_interest)
+
+
+# Filter to only those designated for hazardous fuels reduction
+nfpors_interest_designated_haz_fuels_only <- nfpors |>
+  dplyr::filter(keypointname == "Hazardous Fuels Reduction")
+
+
+
+
+
+
+# Filter to only prescribed burns
+
+burn_types_of_interest <- c("Broadcast Burn", "Fire Use", "Jackpot Burn", "Machine Pile Burn", "Hand Pile Burn")
+
+nfpors_rx <- nfpors |>
+   filter(typename %in% burn_types_of_interest)
+
+facts_rx <- facts |>
+   filter(TREATMENT_TYPE %in% burn_types_of_interest)
+
+```
+
+# Compare overall filtered data in FACTS & NFPORS with some basic visualization
+
+```{r, fig.width=7, fig.height=8}
+
+compare_fuels_datasets_panel <- function(nfpors, facts, subtitle_text = "") {
+  years_to_show <- 2000:2025
+
+  # 1. Events per year
+  p1_data <- bind_rows(
+    nfpors |> count(Year = actualcompletionyear) |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> count(Year = actualcompletionyear) |> mutate(Source = "FACTS")
+  ) |> filter(Year %in% years_to_show)
+
+  p1 <- ggplot(p1_data, aes(x = factor(Year), y = n, fill = Source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(x = "Year", y = "Project Count", title = "Projects per Year") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # 2. Hectares per year
+  p2_data <- bind_rows(
+    nfpors |> group_by(Year = actualcompletionyear) |> summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> group_by(Year = actualcompletionyear) |> summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |> mutate(Source = "FACTS")
+  ) |> filter(Year %in% years_to_show)
+
+  p2 <- ggplot(p2_data, aes(x = factor(Year), y = hectares, fill = Source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(x = "Year", y = "Hectares Treated", title = "Hectares Treated per Year") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # 3. Events by agency
+  p3_data <- bind_rows(
+    nfpors |> st_drop_geometry() |> count(agencyname) |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> mutate(agencyname = "Forest Service") |> count(agencyname) |> mutate(Source = "FACTS")
+  )
+
+  p3 <- ggplot(p3_data, aes(x = reorder(agencyname, -n), y = n, fill = Source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(x = "Agency", y = "Event Count", title = "Events by Agency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # 4. Hectares by agency
+  p4_data <- bind_rows(
+    nfpors |> group_by(agencyname) |> summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> mutate(agencyname = "Forest Service") |> group_by(agencyname) |> summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |> mutate(Source = "FACTS")
+  )
+
+  p4 <- ggplot(p4_data, aes(x = reorder(agencyname, -hectares), y = hectares, fill = Source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(x = "Agency", y = "Hectares Treated", title = "Hectares Treated by Agency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # 5. Total event count
+  p5_data <- bind_rows(
+    nfpors |> summarise(value = n()) |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> summarise(value = n()) |> mutate(Source = "FACTS")
+  )
+
+  p5 <- ggplot(p5_data, aes(x = Source, y = value, fill = Source)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Dataset", y = "Total Events", title = "Total Number of Treatments") +
+    theme_minimal()
+
+  # 6. Total hectares
+  p6_data <- bind_rows(
+    nfpors |> summarise(value = sum(hectares, na.rm = TRUE)) |> mutate(Source = "NFPORS"),
+    facts |> st_drop_geometry() |> summarise(value = sum(hectares, na.rm = TRUE)) |> mutate(Source = "FACTS")
+  )
+
+  p6 <- ggplot(p6_data, aes(x = Source, y = value, fill = Source)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Dataset", y = "Total Hectares", title = "Total Hectares Treated") +
+    theme_minimal()
+
+  # Layout: left = count plots, right = hectares plots
+  p_all <- (p1 | p2) / (p3 | p4) / (p5 | p6) +
+  plot_annotation(
+    title = "NFPORS vs FACTS: Data Comparison",
+    subtitle = subtitle_text,
+    theme = theme(plot.title = element_text(size = 16, face = "bold"))
+  )
+  
+  return(invisible(p_all))
+}
+
+
+p1 <- compare_fuels_datasets_panel(nfpors_interest, facts_interest, subtitle_text = "Western US, treatment types of interest only, 2000–2025")
+p1
+
+p2 <- compare_fuels_datasets_panel(nfpors_interest_designated_haz_fuels_only, facts_interest, subtitle_text = "Western US, treatment types of interest only DESIGNATED AS hazardous fuel reductions, 2000–2025")
+p2
+
+p3 <- compare_fuels_datasets_panel(nfpors_rx, facts_rx, subtitle_text = "Western US, prescribed burn types only, 2000–2025")
+p3
+
+# 
+# # Define years of interest
+# years_to_show <- 2000:2025
+# 
+# # Prepare NFPORS dataset
+# nfpors_counts <- as.data.frame(table(nfpors$actualcompletionyear)) %>%
+#   rename(Year = Var1, Count = Freq) %>%
+#   mutate(Year = as.numeric(as.character(Year)),
+#          Source = "NFPORS") %>%
+#   filter(Year %in% years_to_show)
+# 
+# # Prepare FACTS dataset
+# facts_counts <- as.data.frame(table(facts$actualcompletionyear)) %>%
+#   rename(Year = Var1, Count = Freq) %>%
+#   mutate(Year = as.numeric(as.character(Year)),
+#          Source = "FACTS") %>%
+#   filter(Year %in% years_to_show)
+# 
+# # Combine both
+# combined_counts <- bind_rows(nfpors_counts, facts_counts)
+# 
+# # Plot
+# ggplot(combined_counts, aes(x = factor(Year), y = Count, fill = Source)) +
+#   geom_bar(stat = "identity", position = "dodge") +
+#   labs(x = "Year", y = "Project Count", title = "Projects per Year by Dataset\n (Western US, treatment types of interest only, 2000-2025)") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# 
+# 
+# # Aggregate total hectares by year for each dataset
+# nfpors_hectares <- nfpors |>
+#   group_by(actualcompletionyear) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "NFPORS") |>
+#   rename(Year = actualcompletionyear)
+# 
+# facts_hectares <- facts |>
+#   sf::st_drop_geometry() |>
+#   group_by(actualcompletionyear) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "FACTS") |>
+#   rename(Year = actualcompletionyear)
+# 
+# # Combine
+# combined_hectares <- bind_rows(nfpors_hectares, facts_hectares) |>
+#   filter(Year %in% years_to_show)
+# 
+# # Plot
+# ggplot(combined_hectares, aes(x = factor(Year), y = hectares, fill = Source)) +
+#   geom_bar(stat = "identity", position = "dodge") +
+#   labs(
+#     x = "Year",
+#     y = "Hectares Treated",
+#     title = "Total Hectares Treated per Year by Dataset\n (Western US, treatment types of interest only, 2000-2025)"
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# 
+# 
+# 
+# 
+# # Aggregate total hectares by agency
+# nfpors_agency_total <- nfpors |>
+#   group_by(agencyname) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+#   mutate(Source = "NFPORS")
+# 
+# 
+# # Add Forest Service entry to match NFPORS format
+# facts_agency_total <- facts |>
+#   sf::st_drop_geometry() |>
+#   mutate(agencyname = "Forest Service") |>
+#   group_by(agencyname) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+#   mutate(Source = "FACTS")
+# 
+# # Combine both
+# combined_agency_total <- bind_rows(nfpors_agency_total, facts_agency_total)
+# 
+# # Plot
+# ggplot(combined_agency_total, aes(x = reorder(agencyname, -hectares), y = hectares, fill = Source)) +
+#   geom_bar(stat = "identity", position = "dodge") +
+#   labs(
+#     x = "Agency",
+#     y = "Total Hectares Treated",
+#     title = "Total Hectares Treated by Agency and Dataset\n (Western US, treatment types of interest only, 2000-2025)"
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# 
+# # Summarize total hectares for NFPORS
+# nfpors_total <- nfpors |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "NFPORS")
+# 
+# # Summarize total hectares for FACTS
+# facts_total <- facts |>
+#   sf::st_drop_geometry() |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "FACTS")
+# 
+# # Combine
+# total_hectares <- bind_rows(nfpors_total, facts_total)
+# 
+# # Plot
+# ggplot(total_hectares, aes(x = Source, y = hectares, fill = Source)) +
+#   geom_bar(stat = "identity") +
+#   labs(
+#     x = "Dataset",
+#     y = "Total Hectares Treated",
+#     title = "Total Hectares Treated by Dataset\n (Western US, treatment types of interest only, 2000-2025)"
+#   ) +
+#   theme_minimal()
+# 
+# 
+# 
+# # Count number of events (rows) in each dataset
+# nfpors_events <- nfpors |>
+#   summarise(events = n()) |>
+#   mutate(Source = "NFPORS")
+# 
+# facts_events <- facts |>
+#   sf::st_drop_geometry() |>
+#   summarise(events = n()) |>
+#   mutate(Source = "FACTS")
+# 
+# # Combine
+# total_events <- bind_rows(nfpors_events, facts_events)
+# 
+# # Plot
+# ggplot(total_events, aes(x = Source, y = events, fill = Source)) +
+#   geom_bar(stat = "identity") +
+#   labs(
+#     x = "Dataset",
+#     y = "Number of Treatments",
+#     title = "Total Number of Treatments by Dataset\n (Western US, treatment types of interest only, 2000-2025)"
+#   ) +
+#   theme_minimal()
+
+
+
+# 
+# #Now only up through 2023
+# 
+# # Summarize total hectares for NFPORS
+# nfpors_total <- nfpors |>
+#   filter(actualcompletionyear <= 2023) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "NFPORS")
+# 
+# # Summarize total hectares for FACTS
+# facts_total <- facts |>
+#   sf::st_drop_geometry() |>
+#   filter(actualcompletionyear <= 2023) |>
+#   summarise(hectares = sum(hectares, na.rm = TRUE)) |>
+#   mutate(Source = "FACTS")
+# 
+# # Combine
+# total_hectares <- bind_rows(nfpors_total, facts_total)
+# 
+# # Plot
+# ggplot(total_hectares, aes(x = Source, y = hectares, fill = Source)) +
+#   geom_bar(stat = "identity") +
+#   labs(
+#     x = "Dataset",
+#     y = "Total Hectares Treated",
+#     title = "Up through 2023 - Total Hectares Treated by Dataset\n (Western US, treatment types of interest only, 2000-2023)"
+#   ) +
+#   theme_minimal()
+
+```
+
+# Access and explore NFPORS treatment POLYGON data
+
+NFPORS appears to have spatial polygon treatment data hidden away. The API breaks when trying to access with regular pagination, so split by year.
+
+Some years still throw errors, but many successfully fetch. It seems to be only in the more recent years that we get errors. This gives us >45,000 additional NON-USFS treatment polygons, ~25,000 of which are in the Western US and of the treatment types of interest.
+
+```{r, fig.width=7, fig.height=8}
+
+# # Regular pagination - FAILS
+# nfpors_poly_fl <- here(dir_raw, "nfpors_poly_api.gpkg")
+#   query_params <- list(where = "1=1",
+#                        outFields = "*",
+#                        f = "geojson")
+#   nfpors_poly_url = "https://usgs.nfpors.gov/arcgis/rest/services/nfpors_extract/MapServer/12/QUERY"
+#   
+#   httr::GET(nfpors_poly_url, query = query_params) #test query
+#   
+#   
+#   nfpors_poly <- access_data_get_x_from_arcgis_rest_api_geojson(base_url = nfpors_poly_url,
+#                                                            query_params = query_params,
+#                                                            max_record = 1000,
+#                                                            n = "all",
+#                                                            timeout = 1000)
+# 
+# #mapview::mapview(nfpors_poly)
+
+
+
+nfpors_poly_fl <- here(dir_raw, "nfpors_poly_api.gpkg")
+if(!file.exists(nfpors_poly_fl)) {
+  years_to_fetch <- 2000:2025
+  
+  nfpors_poly_parts <- purrr::map(years_to_fetch, function(fy_val) {
+    message("Fetching FY: ", fy_val)
+    query_params <- list(
+      where = paste0("FY = ", fy_val),
+      outFields = "*",
+      f = "geojson"
+    )
+    
+    tryCatch({
+      access_data_get_x_from_arcgis_rest_api_geojson(
+        base_url = nfpors_poly_url,
+        query_params = query_params,
+        max_record = 1000,
+        n = "all",
+        timeout = 1000
+      )
+    }, error = function(e) {
+      warning("Failed for FY ", fy_val, ": ", e$message)
+      NULL
+    })
+  })
+  
+  normalize_sf_coltypes_to_character <- function(sf_list) {
+    # Collect all unique column names (excluding geometry column)
+    all_cols <- unique(unlist(lapply(sf_list, function(x) {
+      if (is.null(x)) return(NULL)
+      setdiff(names(x), attr(x, "sf_column"))
+    })))
+    
+    geom_col <- attr(sf_list[[which(!sapply(sf_list, is.null))[1]]], "sf_column")
+  
+    purrr::map(sf_list, function(df) {
+      if (is.null(df)) return(NULL)
+      
+      # Add missing columns as NA_character_ and coerce existing to character
+      for (col in all_cols) {
+        if (!col %in% names(df)) {
+          df[[col]] <- NA_character_
+        } else if (!inherits(df[[col]], "sfc")) {
+          df[[col]] <- as.character(df[[col]])
+        }
+      }
+  
+      # Reorder columns: all attributes first, geometry last
+      df <- df[, c(all_cols, geom_col), drop = FALSE]
+      
+      # Reset sf geometry if it was lost
+      sf::st_geometry(df) <- geom_col
+      return(df)
+    })
+  }
+  
+  nfpors_poly_parts_fix <- normalize_sf_coltypes_to_character(nfpors_poly_parts)
+  nfpors_poly <- dplyr::bind_rows(nfpors_poly_parts_fix)
+
+  sf::st_write(nfpors_poly,
+               nfpors_poly_fl,
+               append = FALSE)
+
+} else {
+  nfpors_poly <- sf::st_read(nfpors_poly_fl, quiet = TRUE)
+}
+
+glue::glue("Total polygons fetched: {nrow(nfpors_poly)}")
+
+#Explore poly
+
+glue::glue("Treatment type in polygons: {unique(nfpors_poly$type_name)}")
+#unique(nfpors_poly$trt_id_db) #all NFPORS
+
+#Filter
+nfpors_poly <- nfpors_poly |>
+  filter(type_name %in% treatment_types_of_interest &
+           trt_statnm == "Accomplished" &
+           st_abbr %in% west_state_list) |>
+  mutate(hectares = as.numeric(gis_acres) * 0.404686,
+         year = as.integer(fy))
+
+glue::glue("Filtered polygons: {nrow(nfpors_poly)}")
+
+# Get counts
+years_to_show <- 2000:2025
+
+#glimpse(nfpors_poly)
+nfpors_poly_agency_count <- nfpors_poly |>
+  sf::st_drop_geometry() |>
+  dplyr::count(agency)
+# nfpors_poly_agency_count
+# nfpors_agency_count
+nfpors_agency_count <- nfpors_interest |>
+  sf::st_drop_geometry() |>
+  dplyr::count(agencyname)
+
+# Add source labels
+poly_agency <- nfpors_poly_agency_count |>
+  mutate(source = "Polygons")
+
+attr_agency <- nfpors_agency_count |>
+  mutate(source = "Points") |>
+  rename(agency = agencyname)
+
+# Combine both
+combined_agency_counts <- bind_rows(poly_agency, attr_agency) #|>
+  #filter(agency != "Forest Service")
+
+# Plot
+pp1 <- ggplot(combined_agency_counts, aes(x = reorder(agency, -n), y = n, fill = source)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Agency Treatment Counts",
+    x = "Agency",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Count number of polygon treatments by year
+nfpors_poly_year <- nfpors_poly |>
+  st_drop_geometry() |>
+  count(year) |>
+  mutate(source = "Polygons") |>
+  rename(Year = year)
+
+# Count number of point treatments by year
+nfpors_point_year <- nfpors_interest |>
+  st_drop_geometry() |>
+  count(actualcompletionyear) |>
+  mutate(source = "Points") |>
+  rename(Year = actualcompletionyear)
+
+# Combine
+nfpors_year_counts <- bind_rows(nfpors_poly_year, nfpors_point_year) |>
+  filter(Year %in% years_to_show)
+
+# Plot
+pp2 <- ggplot(nfpors_year_counts, aes(x = factor(Year), y = n, fill = source)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Treatment Counts by Year",
+    x = "Year",
+    y = "Number of Treatments"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# NFPORS polygons: hectares by year
+nfpors_poly_hectares_year <- nfpors_poly |>
+  st_drop_geometry() |>
+  group_by(year) |>
+  summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+  mutate(Source = "NFPORS Polygons") |>
+  rename(Year = year)
+
+# NFPORS points: hectares by year
+nfpors_point_hectares_year <- nfpors_interest |>
+  group_by(actualcompletionyear) |>
+  summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+  mutate(Source = "NFPORS Points") |>
+  rename(Year = actualcompletionyear)
+
+# Combine and plot
+nfpors_yearly_hectares_comparison <- bind_rows(nfpors_poly_hectares_year, nfpors_point_hectares_year) |>
+  filter(Year %in% years_to_show)
+
+pp3 <- ggplot(nfpors_yearly_hectares_comparison, aes(x = factor(Year), y = hectares, fill = Source)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Year",
+    y = "Hectares Treated",
+    title = "Hectares Treated per Year"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# NFPORS polygons: hectares by agency
+nfpors_poly_agency_hectares <- nfpors_poly |>
+  st_drop_geometry() |>
+  group_by(agency) |>
+  summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+  mutate(Source = "NFPORS Polygons")
+
+# NFPORS points: hectares by agency
+nfpors_point_agency_hectares <- nfpors_interest |>
+  group_by(agencyname) |>
+  summarise(hectares = sum(hectares, na.rm = TRUE), .groups = "drop") |>
+  mutate(Source = "NFPORS Points") |>
+  rename(agency = agencyname)
+
+# Combine and plot
+nfpors_agency_hectares_comparison <- bind_rows(nfpors_poly_agency_hectares, nfpors_point_agency_hectares) |>
+  filter(!is.na(agency))
+
+pp4 <- ggplot(nfpors_agency_hectares_comparison, aes(x = reorder(agency, -hectares), y = hectares, fill = Source)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Agency",
+    y = "Total Hectares Treated",
+    title = "Hectares Treated by Agency"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+pp <- (pp1 + pp4) / (pp2 + pp3) +
+    plot_annotation(
+      title = "NFPORS points vs polygons: Data Comparison",
+      subtitle = "Western US, treatment types of interest only, 2000-2025",
+      theme = theme(plot.title = element_text(size = 16, face = "bold")))
+pp
+
+```
+
+# Are there matching treatment IDs for the NFPORS polygons?
+
+The objectid's don't match, but the treatment IDs appear to match. The vast majority of the polygons have a match.
+
+There are different treated areas recorded in the different datasets, but the difference histogram is centered on zero.
+
+```{r, warning=FALSE, message=FALSE}
+# x <- nfpors_poly |>
+#   sf::st_drop_geometry() |>
+#   mutate(objectid = as.integer(objectid)) |>
+#   inner_join(nfpors, by = join_by(objectid))
+# 
+# ggplot() +
+#   geom_point(data = x, aes(x = hectares.x, y = hectares.y))
+# 
+# 
+# ggplot() +
+#   geom_point(data = x, aes(x = fy, y = completedfy)) +
+#   ylim(c(2000, 2025))
+
+matched_nfpors <- nfpors_poly |>
+  sf::st_drop_geometry() |>
+  inner_join(nfpors_interest, by = join_by(trt_id == treatmentid))
+
+nrow(matched_nfpors)
+
+ggplot() +
+  geom_point(data = matched_nfpors, aes(x = hectares.x, y = hectares.y), alpha = 0.05)+
+  labs(title = "NFPORS joined points and polygons area comparison (ha)")
+
+
+
+ggplot() +
+  geom_point(data = matched_nfpors, aes(x = fy, y = completedfy), alpha = 0.05) +
+  ylim(c(2000, 2025))+
+  labs(title ="NFPORS joined points and polygons year comparison")
+
+
+matched_nfpors <- matched_nfpors |>
+  mutate(diff_hect = hectares.x - hectares.y)
+
+ggplot() +
+  geom_histogram(data = matched_nfpors, aes(x = diff_hect)) +
+  xlim(c(-1000, 1000)) +
+  labs(title = "Difference in calculated area between NFPORS joined points and polygons (ha)")
+
+
+```
+
+# Check if FACTS IDs match
+
+They don't :/ There appears to be no way to explicitly match the USFS data in FACTS & NFPORS. For USFS data, FACTS should be used and the USFS data in NFPORS should be discarded.
+
+```{r}
+
+matched_facts <- facts |>
+  sf::st_drop_geometry() |>
+  inner_join(nfpors_interest, by = join_by(FACTS_ID == treatmentid))
+glue::glue("Matched FACTS: {nrow(matched_facts)}")
+
+```
+
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+
+Click to show R Session Information
+
+</button>
+
+:::: {#collapseOne .accordion-collapse .collapse}
+<div>
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+</div>
+::::

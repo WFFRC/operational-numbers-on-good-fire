@@ -79,12 +79,12 @@ get_non_overlapping_parts_fast_2 <- function(polygons1, polygons2) {
 }
 
 
-create_no_reburn_dataset <- function(dats, start_year, end_year, year_col) {
+create_no_reburn_dataset <- function(dats, subset_start_year, subset_end_year, pre_start_year, pre_end_year, year_col) {
   subset <- dats |> 
-    dplyr::filter({{year_col}} >= start_year & {{year_col}} <= end_year)
+    dplyr::filter({{year_col}} >= subset_start_year & {{year_col}} <= subset_start_year)
   
   pre_subset <- welty |>
-    dplyr::filter({{year_col}}  < start_year)
+    dplyr::filter({{year_col}}  <= pre_end_year & {{year_col}} >= pre_start_year)
   
   
   tic("Subset resolve overlap")
@@ -123,8 +123,10 @@ welty_wf <- welty|>
 # Use functions
 welty_no_reburn_2010_2020 <- create_no_reburn_dataset(
   dats = welty_wf,
-  start_year = 2010,
-  end_year = 2020,
+  subset_start_year = 2010,
+  subset_end_year = 2020,
+  pre_start_year = 1984,
+  pre_end_year = 2009,
   year_col = Fire_Year
 )
 
@@ -135,7 +137,22 @@ welty_no_reburn_1984_2020 <- create_no_reburn_dataset(
   year_col = Fire_Year
 )
 
+# Get overall area
+welty_wf_og <- welty_wf |>
+  filter(Fire_Year >= 2010 & Fire_Year <= 2020) |>
+  st_union()
+welty_wf_og_ha <- welty_wf_og |>
+  st_area() |>
+  sum() %>%
+  {. * 0.0001}
+welty_wf_no_reburn_ha <- welty_no_reburn_2010_2020 |>
+  st_area() |>
+  sum() %>%
+  {. * 0.0001}
 
+reburned_ha <- welty_wf_og_ha - welty_wf_no_reburn_ha
+perc_reburn <- (reburned_ha / welty_wf_og_ha) * 100
+perc_reburn
 
 # Write files
 flnm <- here::here(dir_derived, "goodfire_dataset_for_analysis_2010_2020_no_reburns.gpkg")
@@ -156,6 +173,10 @@ st_write_shp(shp = welty_no_reburn_1984_2020,
 
 
 
+
+ggplot() +
+  geom_histogram(data = welty_wf,
+                 aes(x = Fire_Year))
 
 
 # 

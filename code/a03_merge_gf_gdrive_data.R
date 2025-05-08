@@ -18,7 +18,7 @@ install_and_load_packages(c("googledrive",
 
 # INPUTS ----
 
-summarizeName <- 'states'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
+summarizeName <- 'states_no_reburn_v1'  # CHANGE THIS TO MATCH summarizeName IN GEE SCRIPT 2_full-streamlined-good-fire
 driveFolder <- 'GEE_Exports'     # MAKE SURE THAT THIS IS THE GDRIVE FOLDER YOU ARE USING. 'GEE_Exports' is the default for the export script
 earliestYear <- 2010
 latestYear <- 2020
