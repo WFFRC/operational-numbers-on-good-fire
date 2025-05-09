@@ -114,29 +114,6 @@ install_and_load_packages <- function(package_list, auto_install = "n") {
 }
 
 
-#' Access MTBS CONUS Polygons
-#'
-#' This function accesses the MTBS (Monitoring Trends in Burn Severity) CONUS (Continental United States) polygons by downloading and reading the MTBS perimeter shapefile directly from the USGS website. The shapefile is accessed via a URL and read into an `sf` object.
-#'
-#' @return An `sf` object containing the MTBS CONUS polygons.
-#' @examples
-#' \dontrun{
-#' mtbs_data <- access_data_mtbs_conus()
-#' print(mtbs_data)
-#' }
-#' 
-#' @importFrom sf st_read 
-#' @export
-access_data_mtbs_conus <- function() {
-  mtbs <- paste0(
-    "/vsizip/vsicurl/",
-    "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/MTBS_Fire/data/composite_data/burned_area_extent_shapefile/mtbs_perimeter_data.zip",
-    "/mtbs_perims_DD.shp"
-  ) |>
-    sf::st_read()
-  
-  return(mtbs)
-}
 
 
 #' Read CSV from Google Drive Path
@@ -234,45 +211,178 @@ st_write_shp <- function(shp, location, filename, zip_only = FALSE, overwrite = 
 }
 
 
-#' Ensure Directory Exists
+
+#' Safely Download a File to a Directory
 #'
-#' This function checks if a directory exists at the specified path, and if not, creates a new directory.
+#' Downloads a file from a URL to a specified directory, only if it doesn't already exist there.
 #'
-#' @param path A character string specifying the path to the new directory.
-#' @return The function does not return any value. It creates a directory if it does not already exist.
-#' @examples
-#' # Ensure a directory named "data" exists
-#' dir_ensure("data")
+#' @param url Character. The URL to download from.
+#' @param dest_dir Character. The directory where the file should be saved.
+#' @param mode Character. Mode passed to `download.file()`. Default is "wb" (write binary).
+#' @param timeout Integer. Optional timeout in seconds. Will be reset afterward.
 #'
+#' @return A character string with the full path to the downloaded file.
+#'
+#' @importFrom utils download.file
 #' @export
-dir_ensure <- function(path) {
-  if (!dir.exists(path)) {
-    dir.create(path)
-    message("Directory created: ", path)
-  } else {
-    message("Directory already exists: ", path)
+#'
+#' @examples
+#' \dontrun{
+#' path <- safe_download("https://example.com/data.zip", "data/")
+#' }
+safe_download <- function(url,
+                          dest_dir,
+                          mode = "wb",
+                          timeout = NA) {
+  # Validate input
+  if (!is.character(url) || length(url) != 1) stop("`url` must be a single character string.")
+  if (!is.character(dest_dir) || length(dest_dir) != 1) stop("`dest_dir` must be a single character string.")
+  
+  # Ensure destination directory exists
+  if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE)
+  
+  # Derive destination file path from URL and directory
+  filename <- basename(url)
+  destfile <- file.path(dest_dir, filename)
+  
+  # Skip download if file already exists
+  if (file.exists(destfile)) {
+    message("Skipping download: File already exists at ", destfile)
+    return(normalizePath(destfile, mustWork = FALSE))
   }
+  
+  # Handle optional timeout
+  original_timeout <- getOption("timeout")
+  if (!is.na(timeout) && timeout > original_timeout) {
+    options(timeout = timeout)
+    on.exit(options(timeout = original_timeout), add = TRUE)
+  }
+  
+  # Attempt to download
+  tryCatch({
+    download.file(url, destfile, mode = mode)
+    message("Downloaded: ", destfile)
+  }, error = function(e) {
+    stop("Failed to download file from URL: ", e$message)
+  })
+  
+  return(normalizePath(destfile, mustWork = FALSE))
 }
 
 
-#' Convert R Color to Hexadecimal
+#' Ensure Directories Exist
 #'
-#' This function converts a standard R color name (e.g., 'red', 'steelblue') to its corresponding hexadecimal color code.
+#' This function checks if one or more directories exist at the specified paths,
+#' and creates any that do not exist.
 #'
-#' @param color A character string specifying a standard R color name.
-#' @return A character string representing the hexadecimal color code of the specified R color.
+#' @param path A character string or a vector of strings specifying directory paths.
+#' @return A character vector of all directory paths that were checked/created.
 #' @examples
-#' # Convert the color 'red' to its hexadecimal equivalent
-#' col2hex("red")
+#' # Ensure a single directory
+#' dir_ensure("data")
 #'
-#' # Convert the color 'steelblue' to its hexadecimal equivalent
-#' col2hex("steelblue")
+#' # Ensure multiple directories
+#' dir_ensure(c("data", "output", "logs"))
 #'
 #' @export
-col2hex <- function(color) {
-  rgb_values <- col2rgb(color)
-  hex_color <- rgb(rgb_values[1], rgb_values[2], rgb_values[3], maxColorValue=255)
-  return(hex_color)
+dir_ensure <- function(path) {
+  if (!is.character(path)) {
+    stop("`path` must be a character string or a vector of character strings.")
+  }
+  
+  created_paths <- character()
+  
+  for (p in path) {
+    if (!dir.exists(p)) {
+      tryCatch({
+        dir.create(p, recursive = TRUE)
+        message("Directory created: ", p)
+        created_paths <- c(created_paths, p)
+      }, error = function(e) {
+        warning("Failed to create directory: ", p, " — ", conditionMessage(e))
+      })
+    } else {
+      message("Directory already exists: ", p)
+    }
+  }
+  
+  return(invisible(path))
+}
+
+
+
+
+
+#' Safe Unzip a File (with Optional Recursive Unzipping and ZIP Cleanup)
+#'
+#' Safely unzips a ZIP file to a specified directory, skipping if all expected contents already exist.
+#' Optionally removes the original and/or nested ZIP files after extraction.
+#'
+#' @param zip_path Character. Path to the local ZIP file.
+#' @param extract_to Character. Directory where the contents should be extracted. Defaults to the ZIP's directory.
+#' @param recursive Logical. If TRUE, recursively unzip nested ZIP files. Defaults to FALSE.
+#' @param keep_zip Logical. If FALSE, deletes the original ZIP and any nested ZIPs after unzipping. Defaults to TRUE.
+#'
+#' @return A character vector of full paths of the extracted files (excluding directories).
+#'
+#' @importFrom utils unzip
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' files <- safe_unzip("data/archive.zip", recursive = TRUE, keep_zip = FALSE)
+#' print(files)  # Only unzipped files, not folders
+#' }
+safe_unzip <- function(zip_path,
+                       extract_to = dirname(zip_path),
+                       recursive = FALSE,
+                       keep_zip = TRUE) {
+  # Validate inputs
+  if (!file.exists(zip_path)) stop("ZIP file does not exist: ", zip_path)
+  if (!is.character(extract_to) || length(extract_to) != 1) stop("`extract_to` must be a single character string.")
+  if (!is.logical(recursive) || length(recursive) != 1) stop("`recursive` must be a single logical value.")
+  if (!is.logical(keep_zip) || length(keep_zip) != 1) stop("`keep_zip` must be a single logical value.")
+  
+  # List expected files from the archive
+  zip_listing <- unzip(zip_path, list = TRUE)
+  expected_paths <- file.path(extract_to, zip_listing$Name)
+  
+  # Skip if already fully extracted
+  if (all(file.exists(expected_paths))) {
+    message("Skipping unzip: All expected files already exist in ", extract_to)
+    
+    # Get all unzipped files (excluding directories)
+    all_files <- list.files(extract_to, recursive = TRUE, full.names = TRUE)
+    file_paths <- all_files[file.info(all_files)$isdir == FALSE]
+    
+    return(invisible(normalizePath(file_paths, mustWork = FALSE)))
+    
+  } else {
+    if (!dir.exists(extract_to)) dir.create(extract_to, recursive = TRUE)
+    tryCatch({
+      unzip(zip_path, exdir = extract_to)
+    }, error = function(e) {
+      stop("Failed to unzip: ", e$message)
+    })
+    
+    # Recursive unzip of nested ZIPs
+    if (recursive) {
+      nested_zips <- list.files(extract_to, pattern = "\\.zip$", recursive = TRUE, full.names = TRUE)
+      for (nz in nested_zips) {
+        unzip(nz, exdir = dirname(nz))
+        if (!keep_zip) unlink(nz)
+      }
+    }
+    
+    # Optionally remove original zip
+    if (!keep_zip) unlink(zip_path)
+    
+    # Get all unzipped files (excluding directories)
+    all_files <- list.files(extract_to, recursive = TRUE, full.names = TRUE)
+    file_paths <- all_files[file.info(all_files)$isdir == FALSE]
+    
+    return(invisible(normalizePath(file_paths, mustWork = FALSE)))
+  }
 }
 
 
@@ -319,157 +429,65 @@ download_data_from_gdrive <- function(gDrivePath, localPath) {
   googledrive::drive_download(googledrive::as_id(id), path = localPath, overwrite = TRUE)
 }
 
-
-#' Save Kable Output as PNG with Workaround
+#' Package Existing Data File with Metadata into ZIP
 #'
-#' This function provides a workaround for an issue (as of 3/20/24) with `kableExtra::save_kable`, which fails to export tables as `.png` files. It first saves the table as an HTML file and then converts it to a PNG using `webshot2`.
+#' Copies an existing data file, creates a Markdown metadata file using provided column names and descriptions, and packages both into a ZIP archive.
 #'
-#' @param k An output object from the `kable` function.
-#' @param file_path A character string specifying the full desired file path (e.g., 'myDir/figs/myTable.png') for the output PNG file.
-#' @return No return value. The function saves the PNG file to the specified location.
-#' @examples
-#' # Save a kable output as a PNG file
-#' \dontrun{
-#' k <- knitr::kable(head(mtcars))
-#' save_kable_workaround(k, "myDir/figs/myTable.png")
-#' }
+#' @param data_file_path Path to the existing data file (CSV).
+#' @param column_names Character vector of column names.
+#' @param column_descriptions Character vector of column descriptions (same length as column_names).
+#' @param overall_description Overall dataset description.
+#' @param author Author name.
+#' @param github_repo GitHub repo URL.
+#' @param out_dir Output directory path.
+#' @param data_name_full Full dataset name for metadata.
+#' @param data_name_file Base filename for output (no extension).
 #'
-#' @importFrom webshot2 webshot
-#' @importFrom kableExtra save_kable
-#' @export
-save_kable_workaround <- function(k, file_path) {
-  html_path <- paste0(tools::file_path_sans_ext(file_path), ".html")
-  kableExtra::save_kable(x = k, file = html_path)
-  webshot2::webshot(html_path, file = file_path)
-  file.remove(html_path)
+#' @return NULL. Writes metadata and zip file to disk.
+#'
+#' @importFrom zip zip
+package_with_metadata <- function(data_file_path, column_names, column_descriptions,
+                                  overall_description, author, github_repo,
+                                  out_dir, data_name_full, data_name_file) {
+  # Validate inputs
+  if (!file.exists(data_file_path)) {
+    stop("The specified data file does not exist.")
+  }
+  stopifnot(length(column_names) == length(column_descriptions))
+  
+  # Create metadata table
+  df_metadata <- cbind(column_names, column_descriptions)
+  
+  # # Copy original file with new name
+  # data_copy_path <- file.path(out_dir, paste0(data_name_file, ".csv"))
+  # file.copy(data_file_path, data_copy_path, overwrite = TRUE)
+  
+  # Create metadata markdown
+  meta_path <- file.path(out_dir, "metadata.md")
+  stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+  
+  sink(meta_path)
+  cat("# Metadata for the ", data_name_full, " dataset\n")
+  cat(overall_description, "\n\n")
+  cat("## Information\n")
+  cat("Author: ", author, "\n")
+  cat("Date generated: ", stamp, "\n")
+  cat("[GitHub repo with code for reproduction](", github_repo, ")\n\n")
+  cat("## Metadata\n")
+  cat("column_names :: column_descriptions\n")
+  cat(apply(df_metadata, 1, paste, collapse = " :: "), sep = "\n")
+  sink()
+  
+  # Zip files
+  zip_path <- file.path(out_dir, paste0(data_name_file, ".zip"))
+  zip::zip(zipfile = zip_path,
+           files = c(data_file_path, meta_path),
+           mode = "cherry-pick")
+  
+  # Clean up temporary files
+  file.remove(meta_path)
 }
 
-
-#' Fit MBLM (Median-Based Linear Model) Estimator and Visualize
-#'
-#' This function fits a Theil-Sen or Siegel estimator using median-based linear 
-#' modeling (MBLM) and visualizes the results with a scatter plot and fitted 
-#' regression line. The type of estimator (Theil-Sen or Siegel) can be controlled 
-#' via the `repeated` argument.
-#'
-#' @param dats A data frame containing the data.
-#' @param x The predictor variable (unquoted column name) from the data frame.
-#' @param y The response variable (unquoted column name) from the data frame.
-#' @param repeated Logical, if `TRUE`, uses the Siegel estimator which allows 
-#' for repeated medians; if `FALSE`, uses the Theil-Sen estimator (default: `FALSE`).
-#'
-#' @return A `ggplot` object showing the scatter plot of `x` vs `y` with the 
-#' fitted regression line overlaid.
-#'
-#' @details
-#' The function uses the `mblm` package to fit the linear model using either 
-#' the Theil-Sen or Siegel estimator based on the value of the `repeated` argument.
-#' It visualizes the fit using `ggplot2` by plotting the data points and 
-#' adding a dashed regression line based on the model's coefficients.
-#'
-#' Non-standard evaluation (NSE) is used to allow unquoted column names for `x` 
-#' and `y`. The variables are converted to strings using `deparse(substitute())`, 
-#' which allows them to be used in the formula for model fitting and in the plot labels.
-#'
-#' @examples
-#' # Example with Theil-Sen estimator
-#' mblm_fit_estimator_and_visualize(mtcars, mpg, disp, repeated = FALSE)
-#' 
-#' # Example with Siegel estimator
-#' mblm_fit_estimator_and_visualize(mtcars, mpg, disp, repeated = TRUE)
-#'
-#' @importFrom ggplot2 ggplot aes geom_point geom_abline labs
-#' @importFrom mblm mblm
-#' @export
-mblm_fit_estimator_and_visualize <- function(dats, x, y, repeated = FALSE) {
-  
-  # Determine which estimator to use
-  estimator <- ifelse(repeated, "siegel estimator", "thiel-sen estimator")
-  
-  # Convert x and y to string names for formula creation
-  x_name <- deparse(substitute(x))
-  y_name <- deparse(substitute(y))
-  
-  # Create the formula dynamically
-  formula <- as.formula(paste(y_name, "~", x_name))
-  
-  # Fit the MBLM model
-  fit <- mblm::mblm(formula, data = dats, repeated = repeated)
-  
-  # Create the plot with ggplot2
-  p <- ggplot2::ggplot(dats, ggplot2::aes(x = {{x}}, y = {{y}})) +
-    ggplot2::geom_point() +
-    ggplot2::geom_abline(intercept = fit$coefficients["(Intercept)"],
-                         slope = fit$coefficients[x_name],  # Access slope using variable name
-                         linetype = "dashed",
-                         linewidth = 0.8) +
-    ggplot2::labs(
-      title = paste("MBLM Fit for", y_name, "vs", x_name),
-      x = x_name,
-      y = y_name,
-      caption = paste0("Coefficient: ", fit$coefficients[x_name], "\nUsing ", estimator)
-    )
-  
-  return(p)
-}
-
-
-#' Get MBLM Coefficients by Group
-#'
-#' This function estimates the slope coefficients of a linear relationship between two variables (`x` and `y`)
-#' for each group in a dataset, using either the Siegel or Theil-Sen estimator (from the `mblm` package).
-#'
-#' @param dats A data frame containing the variables.
-#' @param x The independent variable.
-#' @param y The dependent variable.
-#' @param group The grouping variable. The function will estimate coefficients for each unique value of this group.
-#' @param repeated Logical, if `TRUE`, the Siegel estimator is used, otherwise the Theil-Sen estimator is applied. Defaults to `FALSE`.
-#'
-#' @return A tibble with three columns: `group` (unique group values), `coefficient` (estimated slope coefficients), 
-#' and `estimator` (the name of the estimator used).
-#'
-#' @importFrom dplyr pull filter tibble group_split
-#' @importFrom purrr map
-#' @importFrom mblm mblm
-#'
-#' @examples
-#' # Example usage
-#' df <- data.frame(group = rep(c("A", "B"), each = 10), x = rnorm(20), y = rnorm(20))
-#' mblm_get_coefficients_by_group(df, x, y, group, repeated = FALSE)
-#'
-#' @export
-mblm_get_coefficients_by_group <- function(dats, x, y, group, repeated = FALSE) {
-  
-  # Determine which estimator to use
-  estimator <- ifelse(repeated, "siegel estimator", "thiel-sen estimator")
-  
-  # Convert x and y to string names for formula creation
-  x_name <- deparse(substitute(x))
-  y_name <- deparse(substitute(y))
-  
-  # Get unique values for the group variable
-  unique_groups <- dats |> dplyr::pull({{group}}) |> unique()
-  
-  # Create a list of data frames, one for each group
-  subset_list <- dats |> dplyr::group_split({{group}})
-  
-  # Estimate coefficients for each group
-  estimators <- subset_list |> purrr::map(function(subset_data) {
-    formula <- as.formula(paste(y_name, "~", x_name))
-    fit <- mblm::mblm(formula, data = subset_data, repeated = repeated)
-    coef <- fit$coefficients[x_name]
-    return(coef)
-  })
-  
-  # Combine unique groups and estimators into a data frame
-  results <- dplyr::tibble(
-    group = unique_groups,
-    coefficient = unlist(estimators),
-    estimator = estimator
-  )
-  
-  return(results)
-}
 
 
 ## ArcGIS REST Data access

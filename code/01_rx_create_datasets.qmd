@@ -1,0 +1,560 @@
+---
+title: "01_create_rx_dataset"
+author: "Tyler L. McIntosh"
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    html-math-method: katex
+    css: styles.css
+    toc: true
+    toc-depth: 1
+    toc-title: Contents
+    toc-location: right
+    code-fold: true
+    code-summary: "Show the code"
+---
+
+
+# Overview & Takeaways
+This script reads in data from FACTS & NFPORS to create unified federal prescribed burn datasets for the western US for use in WFFRC's work. If the datasets are not already in the correct location in the repo, data will be streamed via REST API where possible (NFPORS) and downloaded and unzipped where necessary (FACTS).
+
+The datasets are cleaned, filtered, and unified. NFPORS polygons with the same treatment ID and treatment type are merged into unified polygons and new areas are calculated. Merged polygon and point versions of the dataset are written out and zipped with metadata.
+
+The only user-set parameter is "end_year", on the first line. 
+
+Prescribed burn types included are: "Broadcast Burn", "Fire Use", "Jackpot Burn", "Machine Pile Burn", and "Hand Pile Burn"
+Western states included are: "WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", and "UT"
+
+# Data overview
+
+## NFPORS overview
+
+"NFPORS (National Fire Plan Operations and Reporting System) is an interagency system designed to assist field personnel in planning, managing, and reporting work conducted under the program areas originally described in the 2001 National Fire Plan. It provides a consistent framework between DOI wildland fire management agencies for tracking Hazardous Fuels Reduction, Post Wildfire Recovery (including both Emergency Stabilization and Burned Area Rehabilitation),and Community Assistance activities.
+
+NFPORS is the DOI authoritative system of record for plans and accomplishments in these specific wildland fire management activities and it allows for uniform reporting at field, regional, and national levels. The data are used for high-level decision making tools and funding for the national wildland fire program.
+
+NFPORS began comprehensive tracking of federal Hazardous Fuels Reduction (HFR) treatments in 2003 for work funded by the National Fire Plan. Five agencies, including the Bureau of Indian Affairs, Bureau of Land Management, US Fish and Wildlife Service, National Park Service and US Forest Service provide treatment planning and accomplishment data using NFPORS. Some Treatments may be shown that were conducted prior to FY2003 primarily by the Forest Service.
+
+Treatment Categories:
+
+Prescribed Fire - To deliberately burn wildland fuels in either their natural or modified state and under specified environmental conditions, which allows the fire to be confined to a predetermined area and produces the fire line intensity and rate of spread required to attain planned resource management objectives.
+
+Mechanical Fuel Treatment - HFR work that manually or mechanically removes or modifies fuel load structures to achieve fire management plans.
+
+Other (Treatment) - HFR work that involves the use of chemicals and biological methods to achieve fire management plans. "
+
+For more information on NFPORS, [visit here](https://usgs.nfpors.gov/NFPORS/index.html).
+
+Note: NFPORS data is being accessed via a REST API (URL in code). Metadata descriptions of NFPORS data fields can be [found here](https://usgs.nfpors.gov/NFPORS/help/metadata/v3_treatments_curfy_FGDC.xml).
+
+NOTE2: It DOES look like there are NFPORS treatment polygons that can be accessed via [this REST API](https://usgs.nfpors.gov/arcgis/rest/services/nfpors_extract/MapServer/12), but the API isn't letting me pull the data.
+
+## FACTS overview
+
+"HazFuelTrt_PL (Hazardous Fuel Treatments - Polygon) represents activities of hazardous fuel treatment reduction that are polygons. All accomplishments toward the unified hazardous fuels reduction target must meet the following definition: "Vegetative manipulation designed to create and maintain resilient and sustainable landscapes, including burning, mechanical treatments, and/or other methods that reduce the quantity or change the arrangement of living or dead fuel so that the intensity, severity, or effects of wildland fire are reduced within acceptable ecological parameters and consistent with land management plan objectives, or activities that maintain desired fuel conditions. These conditions should be measurable or predictable using fire behavior prediction models or fire effects models." The data came from the Forest Service's Natural Resource Manager (NRM) Forest Activity Tracking System (FACTS), which is the agency standard for managing information about activities related to fire/fuels, silviculture, and invasive species. FACTS is an activity tracking application for all levels of the Forest Service"
+
+FACTS data can be [downloaded here](https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=Hazardous+Fuel+Treatment). FACTS metadata can be [found here](https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Actv_HazFuelTrt_PL.xml).
+
+# Setup
+
+```{r setup-chunk, message = FALSE, warning = FALSE}
+###########################
+#    USER SET PARAMETER   #
+end_year <- 2025
+###########################
+
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("sf",
+                            "here",
+                            "httr",
+                            "glue",
+                            "patchwork",
+                            "igraph",
+                            "zip",
+                            "tidyverse"))
+
+dir_raw <- here::here("data", "raw")
+dir_derived <- here::here("data", "derived")
+dir_ensure(c(dir_raw,
+           dir_derived))
+
+
+```
+
+
+# Access treatment datasets
+
+```{r data-access, message = FALSE, warning = FALSE}
+
+
+# stream NFPORS if don't have it locally
+nfpors_fl <- here(dir_raw, "nfpors_api.gpkg")
+if(!file.exists(nfpors_fl)) {
+  query_params <- list(where = "1=1",
+                       outFields = "*",
+                       f = "geojson")
+  nfpors_base_url = "https://usgs.nfpors.gov/arcgis/rest/services/nfpors_treats/FeatureServer/1/QUERY"
+  
+  httr::GET(nfpors_base_url, query = query_params) #test query
+  
+  
+  nfpors <- access_data_get_x_from_arcgis_rest_api_geojson(base_url = nfpors_base_url,
+                                                           query_params = query_params,
+                                                           max_record = 1000,
+                                                           n = "all",
+                                                           timeout = 1000)
+  sf::st_write(nfpors,
+               nfpors_fl,
+               append = FALSE)
+} else {
+  nfpors <- sf::st_read(nfpors_fl, quiet = TRUE)
+}
+
+
+# Stream NFPORS polygons if don't have it locally
+nfpors_poly_fl <- here(dir_raw, "nfpors_poly_api.gpkg")
+if(!file.exists(nfpors_poly_fl)) {
+  years_to_fetch <- 2000:end_year
+  
+  nfpors_poly_parts <- purrr::map(years_to_fetch, function(fy_val) {
+    message("Fetching FY: ", fy_val)
+    query_params <- list(
+      where = paste0("FY = ", fy_val),
+      outFields = "*",
+      f = "geojson"
+    )
+    
+    tryCatch({
+      access_data_get_x_from_arcgis_rest_api_geojson(
+        base_url = nfpors_poly_url,
+        query_params = query_params,
+        max_record = 1000,
+        n = "all",
+        timeout = 1000
+      )
+    }, error = function(e) {
+      warning("Failed for FY ", fy_val, ": ", e$message)
+      NULL
+    })
+  })
+  
+  normalize_sf_coltypes_to_character <- function(sf_list) {
+    # Collect all unique column names (excluding geometry column)
+    all_cols <- unique(unlist(lapply(sf_list, function(x) {
+      if (is.null(x)) return(NULL)
+      setdiff(names(x), attr(x, "sf_column"))
+    })))
+    
+    geom_col <- attr(sf_list[[which(!sapply(sf_list, is.null))[1]]], "sf_column")
+  
+    purrr::map(sf_list, function(df) {
+      if (is.null(df)) return(NULL)
+      
+      # Add missing columns as NA_character_ and coerce existing to character
+      for (col in all_cols) {
+        if (!col %in% names(df)) {
+          df[[col]] <- NA_character_
+        } else if (!inherits(df[[col]], "sfc")) {
+          df[[col]] <- as.character(df[[col]])
+        }
+      }
+  
+      # Reorder columns: all attributes first, geometry last
+      df <- df[, c(all_cols, geom_col), drop = FALSE]
+      
+      # Reset sf geometry if it was lost
+      sf::st_geometry(df) <- geom_col
+      return(df)
+    })
+  }
+  
+  nfpors_poly_parts_fix <- normalize_sf_coltypes_to_character(nfpors_poly_parts)
+  nfpors_poly <- dplyr::bind_rows(nfpors_poly_parts_fix)
+
+  sf::st_write(nfpors_poly,
+               nfpors_poly_fl,
+               append = FALSE)
+
+} else {
+  nfpors_poly <- sf::st_read(nfpors_poly_fl, quiet = TRUE)
+}
+
+# Access FACTS data
+facts_gdb <- here(dir_raw, "Actv_HazFuelTrt_PL.gdb") 
+if(!file.exists(facts_gdb)) {
+  
+  facts_url <- "https://data.fs.usda.gov/geodata/edw/edw_resources/fc/Actv_HazFuelTrt_PL.gdb.zip"
+  
+  facts_zip_location <- safe_download(url = facts_url,
+                                      dest_dir = dir_raw,
+                                      timeout = 2000)
+  
+  safe_unzip(zip_path = facts_zip_location,
+             recursive = FALSE,
+             keep_zip = TRUE)
+
+}
+
+facts <- st_read(facts_gdb,
+                 layer = "Actv_HazFuelTrt_PL",
+                 quiet = TRUE)
+
+# Inform user about data loaded
+glue::glue("Total FACTS entries loaded: {nrow(facts)}")
+glue::glue("Total NFPORS entries loaded: {nrow(nfpors)}")
+glue::glue("Total NFPORS polygon entries loaded: {nrow(nfpors_poly)}")
+
+
+```
+
+
+# Unify key field names for filtering
+
+```{r unify}
+
+#Facts
+facts_unified <- facts |>
+  dplyr::rename(typename = TREATMENT_TYPE,
+                stateabbr = STATE_ABBR) |>
+  dplyr::mutate(actualcompletionyear = as.integer(year(as.Date(DATE_COMPLETED)))) |>
+  dplyr::mutate(hectares = GIS_ACRES * 0.404686)
+
+#NFPORS
+nfpors_unified <- nfpors |>
+  dplyr::mutate(hectares = totalaccomplishment * 0.404686,
+                actualcompletionyear = as.integer(actualcompletionyear))
+
+#NFPORS polygons
+nfpors_poly_unified <- nfpors_poly |>
+  dplyr::rename(stateabbr = st_abbr,
+         typename = type_name,
+         treatmentid = trt_id) |>
+  dplyr::mutate(hectares = as.numeric(gis_acres) * 0.404686) |>
+  dplyr::filter(trt_statnm == "Accomplished") |> # only include those that have been accomplished
+  dplyr::left_join(nfpors_unified |>
+                     sf::st_drop_geometry() |>
+                     select(treatmentid, actualcompletionyear),
+                   by = join_by(treatmentid))
+
+
+```
+
+# Filter datasets to only the treatment types of interest
+
+```{r dats_filt}
+
+#Filters
+burn_types_of_interest <- c("Broadcast Burn", "Fire Use", "Jackpot Burn", "Machine Pile Burn", "Hand Pile Burn")
+west_state_list <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+years_of_interest <- seq(2000,end_year)
+
+# Filter function
+filter_dataset <- function(dats) {
+  
+  dats_filt <- dats |>
+    dplyr::filter(!is.na(actualcompletionyear)) |> #filter out incomplete
+    dplyr::filter(typename %in% burn_types_of_interest & #burn types
+                stateabbr %in% west_state_list & #states
+                actualcompletionyear %in% years_of_interest) #years 
+
+  
+  return(invisible(dats_filt))
+}
+
+#Run filters
+facts_unified_filtered <- facts_unified |>
+  filter_dataset()
+
+nfpors_unified_filtered <- nfpors_unified |>
+  filter_dataset()
+
+nfpors_poly_unified_filtered <- nfpors_poly_unified |>
+  filter_dataset()
+
+
+
+# Inform user how many filtered entries remain
+glue::glue("Filtered FACTS entries: {nrow(facts_unified_filtered)}")
+glue::glue("Filtered NFPORS entries: {nrow(nfpors_unified_filtered)}")
+glue::glue("Filtered NFPORS polygon entries: {nrow(nfpors_poly_unified_filtered)}")
+
+
+
+```
+
+
+# Deal with NFPORS polygons & points: merge overlapping polygons of same treatmentid and typename
+
+NFPORS contains a number of different IDs for each entry.
+- projectid: associated with a multi-year project, e.g. "Chapin Mesa Reduction and Def. Space"
+- objectid: appears to be a unique identifier but meaningless and unlinked to other data
+- treatmentid / trt_id: a unique identifier that links between the NFPORS points and polygon data, appears to be the most specific ID available
+- The polygon set contains 'nfporsfid' which appears to be a unique identifier for the polygon, it does not appear to be linked to the NFPORS points
+
+The NFPORS polygon set often contains many polygon entries for a single treatmentid The NFPORS point for a given set of treatmentid polygons appears to be the centroid of all polygons. The many polygons often overlap, making the gis_acres field meaningless for our use and leading to duplication.
+
+To resolve this we will spatially union all polygons that share a treatmentid AND a typename. We need to include typename since there are a few instances of polygons that share a treatmentid but have different treatment types that were applied, and we want to retain the treatment type for later filtering if the user desires.
+
+
+```{r}
+
+# Get the unique treatment IDs that have polygons associated with them
+matched_nfpors_ids <- nfpors_poly_unified_filtered |>
+  sf::st_drop_geometry() |>
+  dplyr::select(treatmentid) |>
+  inner_join(nfpors_unified_filtered |>
+               sf::st_drop_geometry() |>
+               dplyr::select(treatmentid), by = join_by(treatmentid)) |>
+  unique()
+
+# Create a new column to designate whether the NFPORS points have polygons found that are associated with them
+nfpors_unified_filtered <- nfpors_unified_filtered |>
+  mutate(polymatch = treatmentid %in% matched_nfpors_ids$treatmentid)
+
+
+# Check whether all treatmentid polygons occur in the same year for any given treatmentid 
+nfpors_trt_id_yrs_summary <- nfpors_poly_unified_filtered |>
+  st_drop_geometry() |>
+  group_by(treatmentid) |>
+  summarise(unique_fy_count = n_distinct(fy), .groups = "drop")
+unique(nfpors_summary$unique_fy_count)
+
+# Remove any treatments that span multiple years (there shouldn't be any)
+multi_year_polygons <- filter(nfpors_trt_id_yrs_summary, unique_fy_count > 1)
+nfpors_poly_unified_filtered <- nfpors_poly_unified_filtered |>
+  filter(!treatmentid %in% multi_year_polygons$treatmentid)
+
+
+
+# Clean and prepare data
+x <- nfpors_poly_unified_filtered |>
+  dplyr::select(-c(objectid, gis_acres, cent_lat, createdon, col_date, 
+                   modifiedon, cent_lon, nfporsfid, st_area.shape., 
+                   st_perimeter.shape., hectares)) |>
+  st_make_valid()
+
+# Initialize result list
+merged_list <- list()
+
+# Create unique groupings
+group_keys <- unique(x[, c("treatmentid", "typename")])
+
+for (i in seq_len(nrow(group_keys))) {
+  treat_id <- group_keys$treatmentid[i]
+  typ_name <- group_keys$typename[i]
+  
+  # Subset for this treatmentid + typename
+  subset_x <- x[x$treatmentid == treat_id & x$typename == typ_name, ]
+  
+  if (nrow(subset_x) == 0) next  # Skip empty groups
+  
+  # Build adjacency graph for overlapping polygons
+  adj <- st_intersects(subset_x)
+  comps <- components(graph.adjlist(adj))
+  
+  # Assign group ids within each treatmentid-typename group
+  subset_x$group_id <- comps$membership
+  
+  # Merge overlapping polygons
+  merged <- subset_x %>%
+    group_by(treatmentid, typename, group_id) %>%
+    summarise(geom = st_union(geom), .groups = "drop")
+  
+  merged_list[[paste(treat_id, typ_name, sep = "_")]] <- merged
+}
+
+# Combine all merged results
+merged_polygons <- do.call(rbind, merged_list)
+
+nfpors_poly_unified_filtered_merged <- merged_polygons
+
+# Pull the unique data to join with each of the now-merged polygons
+nfpors_og_dats_to_join_with_merged <- x |>
+  sf::st_drop_geometry() |>
+  dplyr::select(stateabbr, actualcompletionyear, typename, agency, treatmentid) |>
+  distinct()
+
+#Join the data to create a merged polygon data version with data added to it
+nfpors_poly_unified_filtered_merged <- nfpors_poly_unified_filtered_merged |>
+  left_join(nfpors_og_dats_to_join_with_merged |> sf::st_drop_geometry(),
+            by = join_by(treatmentid, typename)) 
+
+#Calculate new spatial areas in hectares
+new_nfpors_poly_hectares <- nfpors_poly_unified_filtered_merged |>
+  sf::st_make_valid() |>
+  sf::st_transform("EPSG:5070") |>
+  sf::st_area() |>
+  units::drop_units() |>
+  (\(.) . * 0.0001)()
+
+# add back to polygons
+nfpors_poly_unified_filtered_merged <- nfpors_poly_unified_filtered_merged |>
+  dplyr::mutate(hectares = new_nfpors_poly_hectares,
+                source = "NFPORS") |>
+  dplyr::select(-group_id)
+
+# write out intermediate
+sf::st_write(nfpors_poly_unified_filtered_merged,
+             here::here(dir_derived, "nfpors_poly_unified_filtered_merged_v1.gpkg"),
+             append = FALSE)
+
+```
+
+
+
+# Create a point version of the FACTS data and a non-FACTS version of the NFPORS point data
+
+
+```{r}
+
+#Non-facts nfpors simplified
+nfpors_non_facts_unified_filtered <- nfpors_unified_filtered |>
+  dplyr::filter(source != "FACTS") |>
+  dplyr::select(stateabbr, actualcompletionyear, typename, treatmentid, hectares, agencyname) |>
+  dplyr::mutate(source = "NFPORS")
+
+
+# Point-version of FACTS
+sf::sf_use_s2(FALSE) #turn off S2 to allow centroid creation
+facts_point_unified_filtered <- facts_unified_filtered |>
+  dplyr::rename(treatmentid = FACTS_ID) |>
+  dplyr::select(stateabbr, actualcompletionyear, typename, treatmentid, hectares) |>
+  dplyr::mutate(agencyname = "Forest Service",
+                source = "FACTS") %>%
+  dplyr::filter(st_geometry_type(.) %in% c("POLYGON", "MULTIPOLYGON")) |> #remove non-polygon geometries that can't be centroid-ed
+  sf::st_make_valid() |>
+  sf::st_centroid() |>
+  rename(geom = SHAPE)
+sf::sf_use_s2(TRUE)
+
+
+# Clean poly FACTS
+facts_unified_filtered_simple <- facts_unified_filtered %>%
+  dplyr::filter(st_geometry_type(.) %in% c("POLYGON", "MULTIPOLYGON")) |>
+  sf::st_make_valid() |>
+  dplyr::rename(treatmentid = FACTS_ID) |>
+  select(treatmentid, typename, stateabbr, actualcompletionyear, hectares) |>
+  dplyr::mutate(agency = "Forest Service",
+                source = "FACTS") |>
+  rename(geom = SHAPE)
+
+
+```
+
+
+
+# Merge the facts & nfpors datasets
+
+```{r merge}
+
+# Merge points
+all_point_rx <- facts_point_unified_filtered |>
+  sf::st_transform(sf::st_crs(nfpors_non_facts_unified_filtered)) |>
+  rbind(nfpors_non_facts_unified_filtered) |>
+  dplyr::mutate(unique_id = row_number())
+sorted_cols <- sort(setdiff(names(all_point_rx), "geom"))
+all_point_rx <- all_point_rx[ , c(sorted_cols, "geom")]
+
+# Merge polygons
+all_poly_rx <- facts_unified_filtered_simple |>
+    sf::st_transform(sf::st_crs(nfpors_non_facts_unified_filtered)) |>
+    rbind(nfpors_poly_unified_filtered_merged) |>
+  dplyr::mutate(unique_id = row_number())
+sorted_cols <- sort(setdiff(names(all_poly_rx), "geom"))
+all_poly_rx <- all_poly_rx[ , c(sorted_cols, "geom")]
+
+# Size of each dataset
+glue::glue("Combined NFPORS & FACTS point entries: {nrow(all_point_rx)}")
+glue::glue("Combined NFPORS & FACTS polygon entries: {nrow(all_poly_rx)}")
+
+```
+
+
+
+# Write out
+Need a shapefile of the points for GEE; write gpkg versions for both. Add metadata and package
+
+```{r write}
+
+#Write as shp zip for GEE
+st_write_shp(shp = all_point_rx,
+             location = dir_derived,
+             filename = glue("unified_nfpors_facts_rx_points_west_shareable_2000_{end_year}"),
+             zip_only = TRUE,
+             overwrite = TRUE)
+
+#Write gpkgs
+point_gpkg_file <- here::here(dir_derived, glue("unified_nfpors_facts_rx_points_west_shareable_2000_{end_year}.gpkg"))
+sf::st_write(all_point_rx,
+             point_gpkg_file,
+             append = FALSE)
+
+poly_gpkg_file <- here::here(dir_derived, glue("unified_nfpors_facts_rx_polygons_west_shareable_2000_{end_year}.gpkg"))
+sf::st_write(all_poly_rx,
+             poly_gpkg_file,
+             append = FALSE)
+
+
+# Write metadata and zip up for sharing
+col_descriptions <- c(
+  "Year of treatment completion",
+  "The name of the agency that conducted the activities",
+  "The number of hectares recorded. From NFPORS, the reported totalaccomplishment acreage converted to hectares. From FACTS the GIS_ACRES converted to hectares",
+  "The data source (i.e. FACTS or NFPORS)",
+  "State abbreviation",
+  "An ID from either the NFPORS or FACTS database. This corresponds to treatmentid in NFPORS, trt_id in NFPORS polygons, and FACTS_ID in the FACTS database",
+  "Treatment type",
+  "A unique ID added for this dataset, created from the row numbers",
+  "Spatial geometry"
+)
+point_description <- glue("This dataset contains point locations for prescribed burning activities on federal lands in the western US from 2000-{end_year}. The data is unified from the FACTS and NFPORS databases. NFPORS points are those in the NFPORS database that did NOT specify that they were from FACTS. FACTS points were created from the centroid of FACTS polygons. Any FACTS polygons with invalid geometries were removed. Only completed activities are included, for both datasets. Prescribed burn types included are: Broadcast Burn, Fire Use, Jackpot Burn, Machine Pile Burn, and Hand Pile Burn. Western states included are: WA, OR, CA, ID, MT, WY, NV, AZ, CO, NM, and UT). The dataset is created in script '01_rx_create_datasets.qmd'")
+
+poly_description <- glue("This dataset contains geospatial polygons for prescribed burning activities on federal lands in the western US from 2000-{end_year}. The data is unified from the FACTS and NFPORS databases. NFPORS polygons are those in the NFPORS polygon database that were able to be pulled from the REST API. These polygons are from non-USFS agencies. Some NFPORS treatment polygons have significant overlap between them; in these cases, polygons with matching treatment ID and treatment type were unioned. New areas were calculated geospatially. Any polygons with invalid geometries were removed. Only completed activities are included, for both datasets. Prescribed burn types included are: Broadcast Burn, Fire Use, Jackpot Burn, Machine Pile Burn, and Hand Pile Burn. Western states included are: WA, OR, CA, ID, MT, WY, NV, AZ, CO, NM, and UT). The dataset is created in script '01_rx_create_datasets.qmd'")
+  
+# Write metadata and package
+package_with_metadata(data_file_path = point_gpkg_file,
+                      column_names = names(all_point_rx),
+                      column_descriptions = col_descriptions,
+                      overall_description = point_description,
+                      author = "Tyler L. McIntosh",
+                      github_repo = "https://github.com/WFFRC/operational-numbers-on-good-fire.git",
+                      out_dir = dir_derived, 
+                      data_name_full = "Merged NFPORS and FACTS points",
+                      data_name_file = glue("unified_nfpors_facts_rx_points_west_shareable_2000_{end_year}"))
+
+package_with_metadata(data_file_path = poly_gpkg_file,
+                      column_names = names(all_poly_rx),
+                      column_descriptions = col_descriptions,
+                      overall_description = poly_description,
+                      author = "Tyler L. McIntosh",
+                      github_repo = "https://github.com/WFFRC/operational-numbers-on-good-fire.git",
+                      out_dir = dir_derived, 
+                      data_name_full = "Merged NFPORS and FACTS polygons",
+                      data_name_file = glue("unified_nfpors_facts_rx_polygons_west_shareable_2000_{end_year}")) 
+                          
+```
+
+
+
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+
+Click to show R Session Information
+
+</button>
+
+:::: {#collapseOne .accordion-collapse .collapse}
+<div>
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+</div>
+::::
