@@ -1,10 +1,6 @@
-[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip) [![license](https://img.shields.io/badge/license-BY--NC--ND--4.0-blue)](https://creativecommons.org/licenses/by-nc-nd/4.0/) [![DOI](https://img.shields.io/badge/DOI-doi.org%2F10.1101%2F2024.12.06.627082-blue)](https://doi.org/10.1101/2024.12.06.627082)
-![graphical abstract showing data layers integrated and software used in workflow](/images/gf_overview.jpg)
-
-
 # Good fire in western U.S. forests: estimating the beneficial ecosystem work of wildfires
 
-This repository contains code, data, and graphics to accompany {ADD CITATION & DOI HERE ONCE PUBLISHED}. This repository is intended to support research reproduction according to principles of Open Science and FAIR data principles.
+This repository contains code for an operational version of research on the beneficial ecosystem work of wildfires, maintained by WFFRC.
 
 ## Requirements
 
@@ -12,25 +8,16 @@ Analyses require use of Google Earth Engine (GEE) and R.
 
 This codebase has been tested on the following operating systems:
 
-Linux:
-Mac OSX:
 Windows: Windows 11 Pro
-
-R version 4.3.2 and Google Earth Engine as of 2024 were used for code development and testing.
 
 Users will need to install and set up several packages from CRAN.
 
 ## Code access
 
 To clone this repo to your workspace: 
-``` git clone https://github.com/TylerLMcIntosh/a-number-on-good-fire ```
+``` git clone https://github.com/WFFRC/operational-numbers-on-good-fire ```
 
 Cloning time should be negligible.
-
-## Code demo
-A small demo dataset is available in the "demo_data" directory. This directory contains three demo datasets, one each for MTBS, Welty, and NFPORS data in the state of Colorado. To test analyses on this smaller spatial area, copy the datasets into a data/raw directory and change the associated file paths in the scripts.
-
-Run time for the full workflow should be within a few hours, dependant on GEE resources.
 
 ## Contents
 
