@@ -211,6 +211,88 @@ st_write_shp <- function(shp, location, filename, zip_only = FALSE, overwrite = 
 }
 
 
+#' Safe Unzip a File (with Optional Recursive Unzipping and ZIP Cleanup)
+#'
+#' Safely unzips a ZIP file to a specified directory. Supports skipping extraction if files or top-level folder already exist, recursive unzipping of nested ZIPs, and optional deletion of ZIP files.
+#'
+#' @param zip_path Character. Path to the local ZIP file.
+#' @param extract_to Character. Directory where the contents should be extracted. Defaults to the ZIP's directory.
+#' @param recursive Logical. If TRUE, recursively unzip nested ZIP files. Defaults to FALSE.
+#' @param keep_zip Logical. If FALSE, deletes the original ZIP and any nested ZIPs after unzipping. Defaults to TRUE.
+#' @param full_contents_check Logical. If TRUE, skip unzip only if all expected files exist. If FALSE (default), skip unzip if the top-level directory exists.
+#' @param return_all_paths Logical. If TRUE, returns full paths to all extracted files. If FALSE (default), returns only the top-level directory path.
+#'
+#' @return A character vector of extracted file paths (if \code{return_all_paths = TRUE}) or a single path to the top-level extracted directory (if \code{return_all_paths = FALSE}).
+#'
+#' @importFrom utils unzip
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Recursively unzip and delete all ZIPs, return full paths
+#' files <- safe_unzip("data/archive.zip", recursive = TRUE, keep_zip = FALSE, return_all_paths = TRUE)
+#'
+#' # Unzip only if top folder doesn't exist, return folder path
+#' folder <- safe_unzip("data/archive.zip", full_contents_check = FALSE, return_all_paths = FALSE)
+#' }
+safe_unzip <- function(zip_path,
+                       extract_to = dirname(zip_path),
+                       recursive = FALSE,
+                       keep_zip = TRUE,
+                       full_contents_check = FALSE,
+                       return_all_paths = FALSE) {
+  # Validate inputs
+  if (!file.exists(zip_path)) stop("ZIP file does not exist: ", zip_path)
+  if (!is.character(extract_to) || length(extract_to) != 1) stop("`extract_to` must be a single character string.")
+  if (!is.logical(recursive) || length(recursive) != 1) stop("`recursive` must be a single logical value.")
+  if (!is.logical(keep_zip) || length(keep_zip) != 1) stop("`keep_zip` must be a single logical value.")
+  if (!is.logical(full_contents_check) || length(full_contents_check) != 1) stop("`full_contents_check` must be logical.")
+  if (!is.logical(return_all_paths) || length(return_all_paths) != 1) stop("`return_all_paths` must be logical.")
+  
+  # Get ZIP listing and top-level directory
+  zip_listing <- unzip(zip_path, list = TRUE)
+  top_level_dirs <- unique(sub("/.*", "", zip_listing$Name))
+  top_dir_path <- file.path(extract_to, top_level_dirs[1])
+  
+  # Determine whether to skip unzip
+  skip_unzip <- FALSE
+  if (full_contents_check) {
+    expected_paths <- file.path(extract_to, zip_listing$Name)
+    skip_unzip <- all(file.exists(expected_paths))
+  } else {
+    skip_unzip <- dir.exists(top_dir_path)
+  }
+  
+  if (!skip_unzip) {
+    if (!dir.exists(extract_to)) dir.create(extract_to, recursive = TRUE)
+    tryCatch({
+      unzip(zip_path, exdir = extract_to)
+    }, error = function(e) {
+      stop("Failed to unzip: ", e$message)
+    })
+    
+    if (recursive) {
+      nested_zips <- list.files(extract_to, pattern = "\\.zip$", recursive = TRUE, full.names = TRUE)
+      for (nz in nested_zips) {
+        unzip(nz, exdir = dirname(nz))
+        if (!keep_zip) unlink(nz)
+      }
+    }
+    
+    if (!keep_zip) unlink(zip_path)
+  } else {
+    message("Skipping unzip: Extraction target(s) already exist in ", extract_to)
+  }
+  
+  if (return_all_paths) {
+    all_files <- list.files(extract_to, recursive = TRUE, full.names = TRUE)
+    file_paths <- all_files[file.info(all_files)$isdir == FALSE]
+    return(invisible(normalizePath(file_paths, winslash = "/", mustWork = FALSE)))
+  } else {
+    return(invisible(normalizePath(top_dir_path, winslash = "/", mustWork = FALSE)))
+  }
+}
+
 
 #' Safely Download a File to a Directory
 #'
@@ -312,80 +394,6 @@ dir_ensure <- function(path) {
 
 
 
-
-#' Safe Unzip a File (with Optional Recursive Unzipping and ZIP Cleanup)
-#'
-#' Safely unzips a ZIP file to a specified directory, skipping if all expected contents already exist.
-#' Optionally removes the original and/or nested ZIP files after extraction.
-#'
-#' @param zip_path Character. Path to the local ZIP file.
-#' @param extract_to Character. Directory where the contents should be extracted. Defaults to the ZIP's directory.
-#' @param recursive Logical. If TRUE, recursively unzip nested ZIP files. Defaults to FALSE.
-#' @param keep_zip Logical. If FALSE, deletes the original ZIP and any nested ZIPs after unzipping. Defaults to TRUE.
-#'
-#' @return A character vector of full paths of the extracted files (excluding directories).
-#'
-#' @importFrom utils unzip
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' files <- safe_unzip("data/archive.zip", recursive = TRUE, keep_zip = FALSE)
-#' print(files)  # Only unzipped files, not folders
-#' }
-safe_unzip <- function(zip_path,
-                       extract_to = dirname(zip_path),
-                       recursive = FALSE,
-                       keep_zip = TRUE) {
-  # Validate inputs
-  if (!file.exists(zip_path)) stop("ZIP file does not exist: ", zip_path)
-  if (!is.character(extract_to) || length(extract_to) != 1) stop("`extract_to` must be a single character string.")
-  if (!is.logical(recursive) || length(recursive) != 1) stop("`recursive` must be a single logical value.")
-  if (!is.logical(keep_zip) || length(keep_zip) != 1) stop("`keep_zip` must be a single logical value.")
-  
-  # List expected files from the archive
-  zip_listing <- unzip(zip_path, list = TRUE)
-  expected_paths <- file.path(extract_to, zip_listing$Name)
-  
-  # Skip if already fully extracted
-  if (all(file.exists(expected_paths))) {
-    message("Skipping unzip: All expected files already exist in ", extract_to)
-    
-    # Get all unzipped files (excluding directories)
-    all_files <- list.files(extract_to, recursive = TRUE, full.names = TRUE)
-    file_paths <- all_files[file.info(all_files)$isdir == FALSE]
-    
-    return(invisible(normalizePath(file_paths, mustWork = FALSE)))
-    
-  } else {
-    if (!dir.exists(extract_to)) dir.create(extract_to, recursive = TRUE)
-    tryCatch({
-      unzip(zip_path, exdir = extract_to)
-    }, error = function(e) {
-      stop("Failed to unzip: ", e$message)
-    })
-    
-    # Recursive unzip of nested ZIPs
-    if (recursive) {
-      nested_zips <- list.files(extract_to, pattern = "\\.zip$", recursive = TRUE, full.names = TRUE)
-      for (nz in nested_zips) {
-        unzip(nz, exdir = dirname(nz))
-        if (!keep_zip) unlink(nz)
-      }
-    }
-    
-    # Optionally remove original zip
-    if (!keep_zip) unlink(zip_path)
-    
-    # Get all unzipped files (excluding directories)
-    all_files <- list.files(extract_to, recursive = TRUE, full.names = TRUE)
-    file_paths <- all_files[file.info(all_files)$isdir == FALSE]
-    
-    return(invisible(normalizePath(file_paths, mustWork = FALSE)))
-  }
-}
-
-
 #' Download a file from Google Drive to a local directory
 #'
 #' This function downloads a file from a Google Drive path to a specified local path.
@@ -429,11 +437,11 @@ download_data_from_gdrive <- function(gDrivePath, localPath) {
   googledrive::drive_download(googledrive::as_id(id), path = localPath, overwrite = TRUE)
 }
 
-#' Package Existing Data File with Metadata into ZIP
+#' Package Existing Data File(s) with Metadata into ZIP
 #'
-#' Copies an existing data file, creates a Markdown metadata file using provided column names and descriptions, and packages both into a ZIP archive.
+#' Copies one or more existing data files, creates a Markdown metadata file using provided column names and descriptions, and packages all into a ZIP archive.
 #'
-#' @param data_file_path Path to the existing data file (CSV).
+#' @param data_file_path Character string or vector of file paths (e.g., CSVs).
 #' @param column_names Character vector of column names.
 #' @param column_descriptions Character vector of column descriptions (same length as column_names).
 #' @param overall_description Overall dataset description.
@@ -442,25 +450,29 @@ download_data_from_gdrive <- function(gDrivePath, localPath) {
 #' @param out_dir Output directory path.
 #' @param data_name_full Full dataset name for metadata.
 #' @param data_name_file Base filename for output (no extension).
+#' @param ... Additional parameters to pass to zip::zip
 #'
 #' @return NULL. Writes metadata and zip file to disk.
 #'
 #' @importFrom zip zip
 package_with_metadata <- function(data_file_path, column_names, column_descriptions,
                                   overall_description, author, github_repo,
-                                  out_dir, data_name_full, data_name_file) {
-  # Validate inputs
-  if (!file.exists(data_file_path)) {
-    stop("The specified data file does not exist.")
+                                  out_dir, data_name_full, data_name_file, ...) {
+  # Ensure data_file_path is a character vector
+  if (!is.character(data_file_path)) {
+    stop("data_file_path must be a character string or a character vector.")
   }
+  
+  # Check that all specified files exist
+  missing_files <- data_file_path[!file.exists(data_file_path)]
+  if (length(missing_files) > 0) {
+    stop("The following files do not exist:\n", paste(missing_files, collapse = "\n"))
+  }
+  
   stopifnot(length(column_names) == length(column_descriptions))
   
   # Create metadata table
   df_metadata <- cbind(column_names, column_descriptions)
-  
-  # # Copy original file with new name
-  # data_copy_path <- file.path(out_dir, paste0(data_name_file, ".csv"))
-  # file.copy(data_file_path, data_copy_path, overwrite = TRUE)
   
   # Create metadata markdown
   meta_path <- file.path(out_dir, "metadata.md")
@@ -482,9 +494,10 @@ package_with_metadata <- function(data_file_path, column_names, column_descripti
   zip_path <- file.path(out_dir, paste0(data_name_file, ".zip"))
   zip::zip(zipfile = zip_path,
            files = c(data_file_path, meta_path),
-           mode = "cherry-pick")
+           mode = "cherry-pick",
+           ...)
   
-  # Clean up temporary files
+  # Clean up temporary metadata file
   file.remove(meta_path)
 }
 

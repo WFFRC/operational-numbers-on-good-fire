@@ -1,0 +1,447 @@
+---
+title: "04_fires_unify_wumi3"
+author: "Tyler L. McIntosh"
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    html-math-method: katex
+    css: styles.css
+    toc: true
+    toc-depth: 1
+    toc-title: Contents
+    toc-location: right
+    code-fold: true
+    code-summary: "Show the code"
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+# Overview & Takeaways
+
+This code takes the WUMI 3 data compiled by Park Williams and creates a
+unified fire perimeter dataset for use in WFFRC's activities.
+
+# Data overview
+
+Information from Park for users of the WUMI3 dataset are as follow:
+
+"The text file called multiproduct_unique_fires.txt has a list of all
+the main fires in the database. I say *main* fires because a number of
+large fires in this list of *main* fires are complex fires that are
+composed of smaller fires. For our fire modeling, I try whenever
+possible to decompose complex fires into their smaller components, but
+the exact sizes and boundaries of those smaller components are
+uncertain...
+
+Each row in the list of main fires corresponds to a single fire event.
+The first element in each row is an ID number that I’ve assigned to that
+fire (YYYYMMDD_LAT_LON). For each of these fires, you can find the
+corresponding map of 1-km fractional burned area (netcdf) and fire
+perimeter (shape file) in the subdirectory called FireMaps/.
+
+For each fire, there are number of maps. For each fire, I make an
+initial pair of .nc and .shp files called “burnarea_circle.nc” and
+“burnarea_circle.shp” where I simply characterize the area burned as a
+perfect circle centered on the ignition coordinates. But when better
+data are available, then I also produce other pairs of maps:
+
+- For fires with MTBS data, I also make files called burnarea_mtbs.
+- For fires with CalFire data, I also make files called burnarea_calfire.
+- For fires with NIFC data, I also make files called burnarea_nifc.
+- For fires with GEOMAC data, I also make files called burnarea_geomac.
+
+It’s conceivable that some fires could have pairs of .nc and .shp files
+for all of the above datasets.
+
+What I recommend is for each fire you prioritize the burned-area /
+perimeter files in the following order:
+
+- MTBS whenever available CalFire if MTBS is not available
+- NIFC if neither of the above is available
+- GEOMAC if none of the above are available
+- Circle if none of the above area available"
+
+## A full description of WUMI 3 from Park's paper
+
+"To parameterize the fire model we produce version 3 of the Western US
+MTBS-Interagency (WUMI3) dataset of observed wildfires ≥1 km2 in area,
+which covers 1985–2024 (REF). This is a revision and update of the WUMI2
+(Juang & Williams, 2024), which covered 1984–2020. We exclude 1984 here
+because of a suspicious absence of fires in the states of Wyoming and
+New Mexico in that year. Like the WUMI3, the WUMI2 is developed by
+merging a number of publicly US government sources. Here we describe
+each database used for the WUMI3 and then how they were merged.
+
+1)  MTBS (https://www.mtbs.gov/): The US Forest Service Monitoring
+    Trends in Burn Severity (MTBS) project (Eidenshink et al., 2007)
+    maintains a database of landsat-based maps of burned areas at 30-m
+    resolution for large (\>4.04 km2) fires spanning 1984–2024, though
+    records for 2023 and 2024 were incomplete at the time of access (Mar
+    4 2025). The MTBS dataset distinguishes four fire types: wildfires,
+    prescribed fires, wildland fire use fires, and unknown. We excluded
+    prescribed fires.
+
+2)  FPA-FOD (https://doi.org/10.2737/RDS-2013-0009.6): The US Forest
+    Service’s Fire Program Analysis Fire-Occurrence Database (FPA-FOD)
+    (Short, 2022) is a list of fire incidents addressed by a number of
+    government agencies from 1992–2020.
+
+3)  WFAIP (https://www.wildfire.gov/page/zip-files): The Wildland Fire
+    Application Portal (WFAIP) hosts a lists of fire incidents addressed
+    by the US Forest Service and Fish and Wildlife Service from
+    1972–2020 and by the Bureau of Land Management, Bureau of Indian
+    Affairs, Bureau of Reclamation, and National Park Service from
+    1972–2017. We limited these records to 1985–1991, as the FPA-FOD
+    dataset, which becomes available in 1992, is more thoroughly
+    documented. Comparison of annual records of fire frequency and area
+    burned calculated from the WFAIP and FPA-FOD datasets indicates
+    strong agreement from 1992 through the early 2000s and then
+    reductions in fire frequencies and areas burned from WFAIP relative
+    to FPA-FOD, suggesting a reduction in the completeness of the WFAIP
+    dataset throughout the 2000s.
+
+4)  CalFire
+    (https://www.fire.ca.gov/what-we-do/fire-resource-assessment-program/fire-perimeters):
+    The California Department of Forestry and Fire Protection (CalFire)
+    Resource Assessment Program (FRAP) maintains a database of
+    perimeters for fire incidents in California. The first fire
+    represented in the CalFire FRAP dataset occurred in 1898 and the
+    current version (last accessed Mar 4 2025) comes through 2023. The
+    criteria that CalFire Frap uses to determine whether to include a
+    given fire in the database include fire size and damages. These
+    criteria have changed over time but for the relatively large ≥1 km2
+    fires of interest during our post-1985 study period the policy has
+    been to record all possible fires. CalFire does not provide ignition
+    locations in the FRAP database so we estimate each fire’s ignition
+    location as the central latitude and longitude coordinates within
+    each fire boundary.
+
+5)  NIFC
+    (https://data-nifc.opendata.arcgis.com/datasets/nifc::wfigs-interagency-fire-perimeters/about):
+    The National Interagency Fire Center (NIFC) maintains a database of
+    fire perimeters mapped by the Wildland Fire Interagency Geospatial
+    Services Group. These perimeters are for wildland fire incidents
+    that have been categorized with an Integrated Reporting of Wildland
+    Fire Information identification code (IRWIN ID). The first fire in
+    this database occurred in 2018 and is updated in real-time, but the
+    records prior to 2021 are incomplete (accessed Feb 21 2025).
+
+6)  GeoMAC
+    (https://data-nifc.opendata.arcgis.com/datasets/nifc::historic-perimeters-combined-2000-2018-geomac/about):
+    The NIFC maintains a database of fire perimeters mapped by the
+    Geospatial Multi-Agency Coordination Group (GeoMAC) for wildfires
+    that occurred from 2000–2018. The GeoMAC dataset only provides the
+    year of fire occurrence, but not day of year.
+
+For all non-MTBS datasets described above, we remove fires \<1 km2 in
+area as well as fires with RX, PSBURN, PRESCRIBE, or CONTROL BURN in the
+name, as these are highly likely to be prescribed fires. We further
+remove fires with ASSIST, ASST, or AST in the name, as these fires are
+likely cases in which one agency assisted another agency’s suppression
+effort that was recorded more completely by that other agency. Finally,
+we remove duplicate entries in which multiple fires occurred at the same
+location with the same size on the same date. We also identify
+duplicates as multiple fires that occurred within 5 days, share an
+identical name, and are within 200 km of each other (reported fire
+locations are often imprecise or inaccurate). We allow for flexibility
+in searching for identical names, including not necessitating identical
+punctuation (e.g., “.” or “#”) and allowing for abbreviations (e.g.,
+“MOUNTAIN” vs “MT” or “CANYON” vs “CYN”). If a fire’s full name is
+within the name of another fire, we interpret them to be duplicates if
+they are within 5 days and 50 km. Among pairs of fires with an UKNOWN
+name, we identify fires as duplicates if they are within 25 km, 3 days,
+and 10% of the larger of the fire sizes. If these criteria are met
+between a pair of fires but just one fire’s name is UNKWOWN, the fires
+are considered duplicates if they are within 1 day of each other. In all
+cases of identical duplicates, we keep the first that appears in the
+database and discard any others. In cases of likely but not identical
+duplicates, we prioritize the fire with the earlier discovery date if
+dates differ and then the fire with the larger area if sizes differ and
+discard the others. Finally, for NIFC, GeoMac, and CalFire, for which
+fire boundaries are available, we identify pairs of fires within the
+same dataset that have a listed discovery date 14 days and for which
+≥50% of one fire’s boundary is contained within another’s. For WFIGS and
+FPA-FOD, we do the same assuming fires are circular centered on the
+provided latitude/longitude coordinate pair and with the provided area.
+After automated quality control we used visual inspection of the fire
+lists and maps of fire locations to identify additional duplicates and
+as well as cases in which fire dates, locations, or names are clearly
+incorrect and can be confidently revised.
+
+To develop our final dataset of 1985–2024 wildfires ≥1 km2 from the
+above datasets, we begin by developing a master set of non-MTBS fires
+from WFAIP, FPA-FOD, NIFC, and CalFire, to then be merged with the MTBS
+dataset. Our first step is to merge CalFire with WFAIP for 1985–1991,
+FPA-FOD for 1992–2020, and NIFC for 2021–2023, prioritizing CalFire when
+possible. For NIFC, most matches to CalFire fires are easily identified
+due to common IRWIN IDs. We additionally assume a non-CalFire fire to be
+a match to a given CalFire fire if it has the same name, has a
+start-date within 5 days of the CalFire discovery date, and is located
+within 1.5° of the bounding box of the CalFire boundaries. For CalFire
+fires with UNKNOWN name and cases of non-matching names, we consider a
+non-CalFire fire to be a match with or part of a CalFire fire if it is
+within 5 days and 0.1° of the CalFire bounding box. We additionally
+identify NIFC fires as duplicates of, or part of, CalFire fires if their
+listed discovery dates were within 5 days and have overlapping
+boundaries. Some CalFire fires represent fire complexes made of multiple
+fires that began separately and merged. In cases where multiple
+non-CalFire fires are identified as matches to a given CalFire fire, we
+manually inspect and if multiple fires appear to have indeed contributed
+to the CalFire fire we save this information for later use rather than
+discarding the non-CalFire fires.
+
+We next merge this non-MTBS dataset with MTBS. That is, we identify
+likely matches between non-MTBS and MTBS fires as well as MTBS fires
+that appear to contain multiple smaller non-MTBS fires. In all cases we
+prioritize the spatial information about area burned from MTBS because
+this is the only dataset to provide high-resolution (30 m) within-fire
+maps of area burned. For NIFC, it is straight-forward to identify
+matches to MTBS fires by comparing IRWIN IDs. In addition, in producing
+the FPA-FOD dataset, Short (2022) identified many matches to MTBS fires
+and provided linkages to the corresponding MTBS Fire ID. After using
+IRWIN IDs (and MTBS Fire IDs in the case of FPA-FOD fires), we identify
+additional matches between MTBS and non-MTBS fires using similar,
+methods as those described above to merge non-CalFire and CalFire fires,
+though for the MTBS merge we used somewhat more liberal criteria to
+identify matching fires. There are two reasons for this: First, MTBS
+fires are exclusively large fires, and are therefore more likely than
+CalFire fires to represent fire complexes. Second, MTBS fire footprints
+are identified by comparing a satellite image of the land surface in the
+weeks or months after the fire to a corresponding image from
+approximately a year prior to the fire, making it possible that the
+burned area attributed to a given MTBS fire was actually burned by
+multiple fires. After linking non-MTBS and MTBS fires using IRWINIDs and
+linkages made previously by Short (2022), we link a non-MTBS fire to an
+MTBS fire they share the same, have discovery dates within 14 days of
+each other, and if the non-MTBS fire’s location is within 1.5° of the
+MTBS fire’s bounding box. We next linked non-MTBS and MTBS fires,
+regardless of name, if the discovery dates are within 5 days and the
+non-MTBS fire’s location is be within 0.1° of the MTBS bounding box.
+Additionally, we link NIFC and CalFire fires to MTBS fires if the
+discovery dates are within 14 days and have overlapping boundaries.
+
+Next, although the NIFC database is incomplete prior to 2021, it still
+contains maps of boundaries for a large number of fires from 2018–2020.
+When possible, we replace FPA-FOD fires with matching NIFC fires during
+their 2018–2020 period of overlap. An FPA-FOD fire is identified as a
+match to a NFIC fire if it shares the same name, has a discovery date
+within 14 days, and is located within 0.25° of the NIFC fire. In the
+case of matching UNKNOWN fire names, the PFA-FOD fire must be within 10%
+of the NIFC fire size. If multiple PFA-FOD fires are identified as
+potentially matched to a given NIFC fire, only the fire closest in size
+is considered to be the match. After this we do the same for GeoMAC,
+replacing FPA-FOD fires during 2000–2018 with the data from
+corresponding GeoMAC fires when possible given that the GeoMAC dataset
+also includes fire boundaries. In the case of GEOMAC, discovery date is
+not available so temporal criterion to match with an FPA-FOD fire is a
+shared discovery year.
+
+For each MTBS and non-MTBS fire in the WUMI3, including non-MTBS fires
+linked to an MTBS fire, we produce a 1-km resolution map of fractional
+area. For MTBS fires, this is done by, for each 1-km grid cell, adding
+up the area of all 30-m grid cells identified as burned in the original
+MTBS dataset. For CalFire, NIFC, and GeoMAC, which provide polygons of
+fire boundaries, we find the area of each 1-km grid cell that falls
+within each burned area polygon. For WFAIP and FPA-FOD, which only
+provide a single latitude-longitude pair per fire, we estimate area
+burned boundaries by assuming the fires are circular centered on the
+provided coordinates and then map area burned on a 1-km grid as we did
+for the other datasets.
+
+Finally, we estimate forest area burned by each fire in the WUMI3 and
+only retain fires that burned ≥1 km2 of forest area. To estimate the
+forest area burned by each fire, we overlay each fire’s burned-area map
+on the 1-km map of fractional forest area described Section 2, multiply
+to produce a map of forest area burned, and sum. We also store away the
+location coordinates of the central 1-km grid cell where forest burned
+to represent each forest fire’s occurrence. In cases where multiple
+non-MTBS fires are identified as part of the same MTBS fire, we adjusted
+each non-MTBS fire’s forest area burned proportionally so that they sum
+to that of the MTBS fire. If the forest-fire coordinates of a non-MTBS
+fire that was linked to an MTBS fire do not fall within the forest area
+burned indicated in the MTBS fire’s map, we reassigned the coordinates
+of the non-MTBS fire’s forest-fire location the nearest location with
+MTBS forest area burned. We also followed these final two steps in cases
+where multiple non-CalFire fires were linked to the same CalFire fire."
+
+# Setup
+
+```{r setup-chunk, message = FALSE, warning = FALSE}
+
+if(!requireNamespace("here", quietly = TRUE)) {
+  install.packages("here")
+}
+library(here)
+
+source(here::here("code", "functions.R"))
+
+install_and_load_packages(c("sf",
+                            "here",
+                            "httr",
+                            "purrr",
+                            "glue",
+                            "tidyverse"))
+
+dir_raw <- here::here("data", "raw")
+dir_derived <- here::here("data", "derived")
+dir_ensure(c(dir_raw,
+           dir_derived))
+
+```
+
+# Unzip data and load main fires
+
+```{r data}
+##########################################################
+# USER-SET PARAMETER; change to most recent WUMI dataset
+wumi_zip <- "WUMI_20250509.zip"
+##########################################################
+wumi_base <- tools::file_path_sans_ext(wumi_zip)
+
+wumi_zip <- here::here(dir_raw, "WUMI_20250509.zip")
+wumi_unzipped <- safe_unzip(zip_path = wumi_zip,
+                       extract_to = dirname(wumi_zip),
+                       recursive = FALSE,
+                       keep_zip = TRUE,
+                       return_all_paths = FALSE,
+                       full_contents_check = FALSE)
+
+wumi_main_fires <- readr::read_csv(file = here::here(wumi_unzipped, "multiproduct_unique_fires.txt"),
+                                   show_col_types = FALSE)
+
+
+```
+
+# Primary operating functions
+
+```{r functions}
+
+prioritize_wumi_perimeter <- function(id) {
+  
+  ba_mtbs_file <- here::here(wumi_unzipped, "FireMaps", id, "burnarea_mtbs.shp")
+  ba_calfire_file <- here::here(wumi_unzipped, "FireMaps", id, "burnarea_calfire.shp")
+  ba_nifc_file <- here::here(wumi_unzipped, "FireMaps", id, "burnarea_nifc.shp")
+  ba_geomac_file <- here::here(wumi_unzipped, "FireMaps", id, "burnarea_geomac.shp")
+  ba_circle_file <- here::here(wumi_unzipped, "FireMaps", id, "burnarea_circle.shp")
+  
+  priority_file <- ""
+
+  if(file.exists(ba_mtbs_file)) {
+    priority_file <- ba_mtbs_file
+  } else if(file.exists(ba_calfire_file)) {
+    priority_file <- ba_calfire_file
+  } else if(file.exists(ba_nifc_file)) {
+    priority_file <- ba_nifc_file
+  } else if(file.exists(ba_geomac_file)) {
+    priority_file <- ba_geomac_file
+  } else {
+    priority_file <- ba_circle_file
+  }
+  
+  return(priority_file)
+}
+
+
+load_file_add_dats <- function(prioritized_file) {
+  p_file_name <- basename(prioritized_file)
+  perimeter_type <- switch(p_file_name,
+                           "burnarea_mtbs.shp" = "MTBS",
+                           "burnarea_calfire.shp" = "CALFIRE",
+                           "burnarea_nifc.shp" = "NIFC",
+                           "burnarea_geomac.shp" = "GEOMAC",
+                           "burnarea_circle.shp" = "CIRCLE",
+                           NA)
+  p <- sf::st_read(prioritized_file,
+                   quiet = TRUE) |>
+    dplyr::mutate(perimeter_type = perimeter_type,
+                  fire_year = lubridate::year(date)) |>
+    sf::st_set_crs("ESRI:102039")
+  return(p)
+}
+
+
+```
+
+# Use primary operating functions
+
+```{r operate}
+ids <- wumi_main_fires$fireid
+ids <- ids[1:1000]
+
+# Use functions and rename since columns got shortened in .shp export from Park
+prioritized_perims <- ids |>
+  purrr::map(prioritize_wumi_perimeter) |>
+  purrr::map(load_file_add_dats) |>
+  dplyr::bind_rows() |>
+  dplyr::rename(poly_area_ha = poly_area_h,
+                burn_area_ha = burn_area_h,
+                object_ID_interagency = object_ID_i,
+                object_ID_short = object_ID_s,
+                object_ID_nifc = object_ID_n,
+                object_ID_calfire = object_ID_c,
+                object_ID_geomac = object_ID_g,
+                cause_human_or_natural = cause_human,
+                cause_specific = cause_speci)
+
+
+
+
+```
+
+# Get some basic stats for user
+
+```{r stats}
+
+# Total events by perimeter_type
+event_count <- prioritized_perims |>
+  sf::st_drop_geometry() |>
+  dplyr::group_by(perimeter_type) |>
+  dplyr::summarise(number_of_events = n())
+event_count
+
+# Total area by perimeter_type
+area_totals <- prioritized_perims |>
+  sf::st_drop_geometry() |>
+  dplyr::group_by(perimeter_type) |>
+  dplyr::summarise(total_area = sum(poly_area_ha))
+area_totals
+
+# Area density by perimeter type
+ggplot() + 
+  geom_density(data = prioritized_perims,
+                 aes(x = poly_area_ha, color = perimeter_type)) +
+  labs(title = glue::glue("Density plots of fire areas by perimeter type in {wumi_base}")) +
+  scale_x_log10()
+
+# Total perimeters
+print(glue::glue("There are {nrow(prioritized_perims)} events in the total {wumi_base} unified main fire set."))
+
+```
+
+# Write out
+
+```{r write}
+
+sf::st_write(prioritized_perims,
+             here::here(dir_derived, glue::glue("{wumi_base}_main_fires_unified.gpkg")),
+             append = FALSE)
+
+```
+
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+
+Click to show R Session Information
+
+</button>
+
+:::: {#collapseOne .accordion-collapse .collapse}
+<div>
+
+```{r sessionInfo}
+sessionInfo()
+```
+
+</div>
+::::
