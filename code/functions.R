@@ -211,6 +211,93 @@ st_write_shp <- function(shp, location, filename, zip_only = FALSE, overwrite = 
 }
 
 
+#' Safely Extract a ZIP or TAR Archive
+#'
+#' Handles both .zip and .tar(.gz) files. Supports skipping if files/folders exist,
+#' recursive extraction of nested archives, and optional cleanup.
+#'
+#' @param archive_path Character. Path to a .zip, .tar, or .tar.gz file.
+#' @param extract_to Character. Directory for extraction. Defaults to archive's directory.
+#' @param recursive Logical. Recursively extract nested archives? Defaults to FALSE.
+#' @param keep_archive Logical. Keep original and nested archives after extraction? Defaults to TRUE.
+#' @param full_contents_check Logical. If TRUE, skip extraction only if all files exist.
+#' @param return_all_paths Logical. If TRUE, return all extracted file paths;
+#'                          if FALSE, return all top-level files and directories.
+#'
+#' @return Character vector of extracted paths.
+#' @export
+safe_extract <- function(archive_path,
+                         extract_to = dirname(archive_path),
+                         recursive = FALSE,
+                         keep_archive = TRUE,
+                         full_contents_check = FALSE,
+                         return_all_paths = FALSE) {
+  # --- Validate inputs ---
+  if (!file.exists(archive_path)) stop("Archive does not exist: ", archive_path)
+  if (!dir.exists(extract_to)) dir.create(extract_to, recursive = TRUE)
+  
+  ext <- tolower(tools::file_ext(archive_path))
+  is_zip <- ext == "zip"
+  is_tar <- ext %in% c("tar", "gz", "tgz", "tar.gz")
+  
+  if (!is_zip && !is_tar) stop("Unsupported archive type: ", ext)
+  
+  # --- List archive contents ---
+  contents <- if (is_zip) {
+    utils::unzip(archive_path, list = TRUE)$Name
+  } else {
+    utils::untar(archive_path, list = TRUE)
+  }
+  
+  # Determine top-level items
+  top_level_items <- unique(sub("^([^/]+).*", "\\1", contents))
+  top_level_paths <- file.path(extract_to, top_level_items)
+  
+  # --- Skip logic ---
+  skip_extract <- if (full_contents_check) {
+    all(file.exists(file.path(extract_to, contents)))
+  } else {
+    all(file.exists(top_level_paths))
+  }
+  
+  if (!skip_extract) {
+    tryCatch({
+      if (is_zip) {
+        unzip(archive_path, exdir = extract_to)
+      } else {
+        utils::untar(archive_path, exdir = extract_to)
+      }
+    }, error = function(e) stop("Extraction failed: ", e$message))
+    
+    # --- Recursive extraction ---
+    if (recursive) {
+      nested_archives <- list.files(extract_to, pattern = "\\.(zip|tar|gz|tgz)$", recursive = TRUE, full.names = TRUE)
+      nested_archives <- setdiff(nested_archives, archive_path)
+      for (na in nested_archives) {
+        safe_extract(na, dirname(na), recursive = recursive, keep_archive = keep_archive,
+                     full_contents_check = FALSE, return_all_paths = FALSE)
+        if (!keep_archive) unlink(na)
+      }
+    }
+    
+    if (!keep_archive) unlink(archive_path)
+  } else {
+    message("Skipping extract: Targets already exist in ", extract_to)
+  }
+  
+  # --- Return paths ---
+  if (return_all_paths) {
+    # Get full paths of extracted files
+    extracted_paths <- file.path(extract_to, contents)
+    extracted_files <- extracted_paths[file.exists(extracted_paths) & !file.info(extracted_paths)$isdir]
+    return(invisible(normalizePath(extracted_files, winslash = "/", mustWork = FALSE)))
+  } else {
+    paths <- file.path(extract_to, top_level_items)
+    return(invisible(normalizePath(paths[file.exists(paths)], winslash = "/", mustWork = FALSE)))
+  }
+}
+
+
 #' Safe Unzip a File (with Optional Recursive Unzipping and ZIP Cleanup)
 #'
 #' Safely unzips a ZIP file to a specified directory. Supports skipping extraction if files or top-level folder already exist, recursive unzipping of nested ZIPs, and optional deletion of ZIP files.
@@ -582,5 +669,67 @@ access_data_get_x_from_arcgis_rest_api_geojson <- function(base_url, query_param
   }
   
   return(result)
+}
+
+
+
+merge_overlapping_matched_polygons <- function(sf_polygons, group_cols) {
+  # Input checks
+  if (!inherits(sf_polygons, "sf")) stop("Input must be an sf object.")
+  if (!all(group_cols %in% names(sf_polygons))) stop("Some group_cols not found in the data.")
+  
+  # Detect geometry column
+  geom_col <- attr(sf_polygons, "sf_column")
+  if (is.null(geom_col)) {
+    geom_candidates <- c("geometry", "geom", "shape")
+    geom_col <- intersect(geom_candidates, names(sf_polygons))[1]
+    if (is.na(geom_col)) stop("No geometry column found.")
+    attr(sf_polygons, "sf_column") <- geom_col
+    class(sf_polygons[[geom_col]]) <- c("sfc", class(sf_polygons[[geom_col]]))
+  }
+  
+  # Make geometries valid
+  x <- sf::st_make_valid(sf_polygons)
+  
+  # Initialize result container
+  merged_list <- list()
+  
+  # Unique group combinations
+  group_keys <- unique(x[, group_cols, drop = FALSE])
+  
+  for (i in seq_len(nrow(group_keys))) {
+    # Build condition for filtering rows
+    cond <- rep(TRUE, nrow(x))
+    for (col in group_cols) {
+      cond <- cond & x[[col]] == group_keys[[col]][i]
+    }
+    subset_x <- x[cond, ]
+    if (nrow(subset_x) == 0) next
+    
+    # Build intersection graph
+    adj <- sf::st_intersects(subset_x)
+    comps <- igraph::components(igraph::graph.adjlist(adj))
+    subset_x$group_id <- comps$membership
+    
+    # Split by component ID
+    split_groups <- split(subset_x, subset_x$group_id)
+    
+    # Merge each component
+    merged_parts <- lapply(split_groups, function(g) {
+      # Take first row's attributes
+      out <- g[1, , drop = FALSE]
+      # Union geometry of all rows in group
+      out[[geom_col]] <- sf::st_union(g[[geom_col]])
+      return(out)
+    })
+    
+    merged_list <- c(merged_list, merged_parts)
+  }
+  
+  # Combine all results
+  merged_result <- do.call(rbind, merged_list)
+  merged_result$group_id <- NULL  # Drop temporary grouping column
+  
+  return(merged_result)
 }
 

@@ -368,7 +368,7 @@ load_file_add_dats <- function(prioritized_file) {
 
 ```{r operate}
 ids <- wumi_main_fires$fireid
-ids <- ids[1:1000]
+#ids <- ids[1:1000]
 
 # Use functions and rename since columns got shortened in .shp export from Park
 prioritized_perims <- ids |>
@@ -427,6 +427,17 @@ print(glue::glue("There are {nrow(prioritized_perims)} events in the total {wumi
 sf::st_write(prioritized_perims,
              here::here(dir_derived, glue::glue("{wumi_base}_main_fires_unified.gpkg")),
              append = FALSE)
+
+for_shp <- prioritized_perims |>
+  dplyr::select(fireid, date, fire_year) |>
+  dplyr::mutate(day_of_yr = lubridate::yday(as.Date(date)))
+st_write_shp(shp = for_shp,
+             location = dir_derived,
+             filename = glue::glue("{wumi_base}_main_fires_unified_simple"),
+             zip_only = TRUE,
+             overwrite = TRUE)
+
+
 
 ```
 

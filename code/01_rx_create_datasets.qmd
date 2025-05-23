@@ -17,6 +17,8 @@ format:
 
 
 # Overview & Takeaways
+This script creates unified prescribed burning land management treatment datasets for public lands in the western United states.
+
 This script reads in data from FACTS & NFPORS to create unified federal prescribed burn datasets for the western US for use in WFFRC's work. If the datasets are not already in the correct location in the repo, data will be streamed via REST API where possible (NFPORS) and downloaded and unzipped where necessary (FACTS).
 
 The datasets are cleaned, filtered, and unified. NFPORS polygons with the same treatment ID and treatment type are merged into unified polygons and new areas are calculated. Merged polygon and point versions of the dataset are written out and zipped with metadata.
@@ -26,7 +28,20 @@ The only user-set parameter is "end_year", on the first line.
 Prescribed burn types included are: "Broadcast Burn", "Fire Use", "Jackpot Burn", "Machine Pile Burn", and "Hand Pile Burn"
 Western states included are: "WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", and "UT"
 
+# Future improvements
+Ideally, comprehensive data on land management activities would include data from the following repositories/datasets:
+- LANDFIRE
+- USGS Land Treatments Digital Library (BLM)
+- Welty & Jeffries
+- ReShape Twig (FACTS + NFPORS geospatial polygons)
+
 # Data overview
+
+## ReShape TWIG
+
+Comprehensive information on the TWIG dataset can be [found here](https://reshapewildfire.org/resources/twig-data-resources). A brief overview is provided b elow. In short, the TWIG dataset merges polygon data from FACTS and NFPORS into a unified whole.
+
+"The Treatment and Wildfire Interagency Geodatabase (TWIG) is a geodatabase of land management activities related to wildland fire and fuels management. TWIG primarily includes records of management activities intended to affect fuels and modify wildfire outcomes (treatments) but also includes records of management activities that were not intentional fuel treatments but may have affected fuels anyway (e.g., logging). TWIG aims to be the most comprehensive and easily accessible source of fuel-related land management activities in the United States."
 
 ## NFPORS overview
 
@@ -54,6 +69,9 @@ NOTE2: It DOES look like there are NFPORS treatment polygons that can be accesse
 
 "HazFuelTrt_PL (Hazardous Fuel Treatments - Polygon) represents activities of hazardous fuel treatment reduction that are polygons. All accomplishments toward the unified hazardous fuels reduction target must meet the following definition: "Vegetative manipulation designed to create and maintain resilient and sustainable landscapes, including burning, mechanical treatments, and/or other methods that reduce the quantity or change the arrangement of living or dead fuel so that the intensity, severity, or effects of wildland fire are reduced within acceptable ecological parameters and consistent with land management plan objectives, or activities that maintain desired fuel conditions. These conditions should be measurable or predictable using fire behavior prediction models or fire effects models." The data came from the Forest Service's Natural Resource Manager (NRM) Forest Activity Tracking System (FACTS), which is the agency standard for managing information about activities related to fire/fuels, silviculture, and invasive species. FACTS is an activity tracking application for all levels of the Forest Service"
 
+Note that, if funded by Wildland Fire/Hazardous Fuels, most RX burn types require an associated spatial polygon feature as of FY09.
+
+
 FACTS data can be [downloaded here](https://data.fs.usda.gov/geodata/edw/datasets.php?xmlKeyword=Hazardous+Fuel+Treatment). FACTS metadata can be [found here](https://data.fs.usda.gov/geodata/edw/edw_resources/meta/Actv_HazFuelTrt_PL.xml).
 
 # Setup
@@ -63,6 +81,8 @@ FACTS data can be [downloaded here](https://data.fs.usda.gov/geodata/edw/dataset
 #    USER SET PARAMETER   #
 end_year <- 2025
 ###########################
+
+options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2025-05-22"))
 
 if(!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
@@ -89,7 +109,7 @@ dir_ensure(c(dir_raw,
 ```
 
 
-# Access treatment datasets
+# Access treatment datasets (NFPORS, FACTS, ReShape TWIG)
 
 ```{r data-access, message = FALSE, warning = FALSE}
 
@@ -206,18 +226,102 @@ facts <- st_read(facts_gdb,
                  layer = "Actv_HazFuelTrt_PL",
                  quiet = TRUE)
 
+
+# Access TWIG
+
+#Download datasets
+twig_treatment_archive <- safe_download("https://sweri-treament-index.s3.us-west-2.amazonaws.com/treatment_index.zip",
+                          dest_dir = dir_raw,
+                          mode = "wb",
+                          timeout = 1000)
+
+twig_schema_archive <- safe_download("https://sweri-treament-index.s3.us-west-2.amazonaws.com/database_scaffolding.zip",
+                          dest_dir = dir_raw,
+                          mode = "wb",
+                          timeout = 1000)
+
+#Extract data archives
+extracted_twig_treatment_path <- safe_extract(
+   archive_path = twig_treatment_archive,
+   extract_to = dir_raw,
+   return_all_paths = FALSE)
+
+extracted_twig_schema_path <- safe_extract(
+   archive_path = twig_schema_archive,
+   extract_to = dir_raw,
+   return_all_paths = FALSE)
+
+#Examine GDB contents
+treatment_layers <- sf::st_layers(extracted_twig_treatment_path)
+schema_layers <- sf::st_layers(extracted_twig_schema_path)
+treatment_layers
+schema_layers
+
+twig_common_attributes <- sf::st_read(extracted_twig_schema_path,
+                                       layer = "common_attributes_lookup")
+twig_twig_categories <- sf::st_read(extracted_twig_schema_path,
+                                       layer = "twig_category_lookup")
+twig <- sf::st_read(extracted_twig_treatment_path,
+                                       layer = "treatment_index")
+
 # Inform user about data loaded
 glue::glue("Total FACTS entries loaded: {nrow(facts)}")
 glue::glue("Total NFPORS entries loaded: {nrow(nfpors)}")
 glue::glue("Total NFPORS polygon entries loaded: {nrow(nfpors_poly)}")
+glue::glue("Total TWIG entries loaded: {nrow(twig)}")
+
+unique_geom_types <- unique(st_geometry_type(twig))
 
 
 ```
 
 
-# Unify key field names for filtering
+# Filter and flatten TWIG polygons, write out
+
+```{r twig-process}
+
+# Filter TWIG to only the treatment types of interest
+state_list <- c("WA", "OR", "CA", "ID", "MT", "WY", "NV", "AZ", "CO", "NM", "UT")
+
+#intentional ignitions
+rx_type_list <- c("Hand Pile Burn",
+                  "Machine Pile Burn",
+                  "Broadcast Burn",
+                  #"Fire Use",
+                  "Jackpot Burn")
+
+twig_intentional_filtered <- twig |>
+  dplyr::filter((is.na(error) | 
+                  (error != "DUPLICATE-DROP" &
+                     error != "HIGH_COST;DUPLICATE-DROP")) &
+                state %in% state_list &
+                ((twig_category == "Planned Ignition" & 
+                   type == "N/A") |
+                   type %in% rx_type_list) &
+                !is.na(actual_completion_date)) |>
+  dplyr::mutate(treatment_year = lubridate::year(actual_completion_date)) |>
+  sf::st_make_valid()
+
+# Flatten TWIG
+
+mapview::mapview(twig_intentional_filtered |> filter(state == "CO") |> sf::st_make_valid())
+
+co <- twig_intentional_filtered |> filter(state == "CO")
+
+z <- merge_overlapping_matched_polygons(sf_polygons = co,
+                                        group_cols = c("name", "actual_completion_date", "activity_code"))
+
+# Write new TWIG dataset
+
+
+```
+
+
+
+# Unify FACTS/NFPORS key field names for filtering
 
 ```{r unify}
+
 
 #Facts
 facts_unified <- facts |>
